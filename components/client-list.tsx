@@ -1,12 +1,6 @@
 'use client'
 
-import type {
-  ClientWithExperiences,
-  FocusTab,
-  ActiveTab,
-  ExperienceType,
-  DerivedStatus,
-} from '@/lib/types'
+import type { ClientWithExperiences, FocusTab, ActiveTab } from '@/lib/types'
 import { ClientRow } from './client-row'
 
 interface ClientListProps {
@@ -19,10 +13,6 @@ interface ClientListProps {
     clientId: string,
     updater: (c: ClientWithExperiences) => ClientWithExperiences
   ) => void
-  getExpDerivedStatus: (
-    client: ClientWithExperiences,
-    expType: ExperienceType
-  ) => DerivedStatus
 }
 
 export function ClientList({
@@ -32,7 +22,6 @@ export function ClientList({
   now,
   loading,
   updateClientLocal,
-  getExpDerivedStatus,
 }: ClientListProps) {
   if (loading) {
     return (
@@ -77,7 +66,6 @@ export function ClientList({
             activeTab={activeTab}
             now={now}
             updateClientLocal={updateClientLocal}
-            getExpDerivedStatus={getExpDerivedStatus}
           />
         ))}
       </div>

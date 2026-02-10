@@ -190,7 +190,7 @@ export function formatDurationCompact(totalSeconds: number): string {
   const hours = Math.floor((abs % 86400) / 3600)
   const minutes = Math.floor((abs % 3600) / 60)
 
-  if (days > 0) return `${days}d`
+  if (days > 0) return `${days}d ${hours}h`
   if (hours > 0) return `${hours}h ${minutes}m`
   return `${minutes}m`
 }
@@ -217,6 +217,110 @@ export function getUrgency(
       if (secondsRemaining <= 5 * 86400) return 'yellow'
       return 'normal'
   }
+}
+
+/**
+ * Format duration with seconds, split into two lines for active node display.
+ * Line 1: days/hours, Line 2: minutes/seconds
+ */
+export function formatDurationWithSeconds(totalSeconds: number): { line1: string; line2: string } {
+  const abs = Math.abs(Math.floor(totalSeconds))
+  const days = Math.floor(abs / 86400)
+  const hours = Math.floor((abs % 86400) / 3600)
+  const minutes = Math.floor((abs % 3600) / 60)
+  const seconds = abs % 60
+
+  if (days > 0) {
+    return {
+      line1: `${days}d ${hours}h`,
+      line2: `${minutes}m ${seconds}s`,
+    }
+  }
+  if (hours > 0) {
+    return {
+      line1: `${hours}h ${minutes}m`,
+      line2: `${seconds}s`,
+    }
+  }
+  return {
+    line1: `${minutes}m`,
+    line2: `${seconds}s`,
+  }
+}
+
+/**
+ * Format overdue duration as two-line string for active node display.
+ * Line 2 includes "(LATE)".
+ */
+export function formatLateCompactTwoLine(secondsOverdue: number): { line1: string; line2: string } {
+  const abs = Math.floor(secondsOverdue)
+  const days = Math.floor(abs / 86400)
+  const hours = Math.floor((abs % 86400) / 3600)
+  const minutes = Math.floor((abs % 3600) / 60)
+  const seconds = abs % 60
+
+  if (days > 0) {
+    return {
+      line1: `-${days}d ${hours}h`,
+      line2: `${minutes}m ${seconds}s (LATE)`,
+    }
+  }
+  if (hours > 0) {
+    return {
+      line1: `-${hours}h ${minutes}m`,
+      line2: `${seconds}s (LATE)`,
+    }
+  }
+  return {
+    line1: `-${minutes}m`,
+    line2: `${seconds}s (LATE)`,
+  }
+}
+
+/**
+ * Format overdue duration as negative compact string.
+ * e.g. "-41m" or "-2d 5h"
+ */
+export function formatLateCompact(secondsOverdue: number): string {
+  const abs = Math.floor(secondsOverdue)
+  const days = Math.floor(abs / 86400)
+  const hours = Math.floor((abs % 86400) / 3600)
+  const minutes = Math.floor((abs % 3600) / 60)
+
+  if (days > 0) return `-${days}d ${hours}h`
+  if (hours > 0) return `-${hours}h ${minutes}m`
+  return `-${minutes}m`
+}
+
+/**
+ * Format completion date for display.
+ * e.g. "Completed Feb 9"
+ */
+export function formatCompletedShort(completedAt: string, firmTz: string = FIRM_TIMEZONE): string {
+  const zoned = toZonedTime(new Date(completedAt), firmTz)
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const month = monthNames[zoned.getMonth()]
+  const day = zoned.getDate()
+  return `Completed ${month} ${day}`
+}
+
+/**
+ * Format due date short for timeline (date only for future, full for active/late).
+ * e.g. "Feb 16" or "Feb 3, 11:59 PM"
+ */
+export function formatDueShort(dueAt: Date, includeTime: boolean = false, firmTz: string = FIRM_TIMEZONE): string {
+  const zoned = toZonedTime(dueAt, firmTz)
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const month = monthNames[zoned.getMonth()]
+  const day = zoned.getDate()
+  if (includeTime) {
+    const hours = zoned.getHours()
+    const minutes = zoned.getMinutes()
+    const ampm = hours >= 12 ? 'PM' : 'AM'
+    const displayHours = hours % 12 || 12
+    return `${month} ${day}, ${displayHours}:${String(minutes).padStart(2, '0')} ${ampm}`
+  }
+  return `${month} ${day}`
 }
 
 /**

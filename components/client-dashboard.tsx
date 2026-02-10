@@ -260,7 +260,6 @@ export function ClientDashboard() {
           now={now}
           loading={loading}
           updateClientLocal={updateClientLocal}
-          getExpDerivedStatus={getExpDerivedStatus}
         />
       </div>
     </div>

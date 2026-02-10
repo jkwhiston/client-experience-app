@@ -6,14 +6,13 @@ import type {
   FocusTab,
   ActiveTab,
   ExperienceType,
-  DerivedStatus,
 } from '@/lib/types'
-import { EXPERIENCE_TYPES, EXPERIENCE_LABELS } from '@/lib/types'
+import { EXPERIENCE_TYPES } from '@/lib/types'
 import {
+  getActiveStage,
   getDueAt,
   getDueAtEffective,
   getNowEffective,
-  formatDurationCompact,
   getDerivedStatus,
 } from '@/lib/deadlines'
 import { updateClient } from '@/lib/queries'
@@ -26,8 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { MoreHorizontal, Pause, Play, Archive, ArchiveRestore } from 'lucide-react'
-import { ExperienceCard } from './experience-card'
-import { MiniIndicator } from './mini-indicator'
+import { TimelineNode } from './timeline-node'
 
 interface ClientRowProps {
   client: ClientWithExperiences
@@ -38,10 +36,6 @@ interface ClientRowProps {
     clientId: string,
     updater: (c: ClientWithExperiences) => ClientWithExperiences
   ) => void
-  getExpDerivedStatus: (
-    client: ClientWithExperiences,
-    expType: ExperienceType
-  ) => DerivedStatus
 }
 
 export function ClientRow({
@@ -50,7 +44,6 @@ export function ClientRow({
   activeTab,
   now,
   updateClientLocal,
-  getExpDerivedStatus,
 }: ClientRowProps) {
   const [editingName, setEditingName] = useState(false)
   const [editingDate, setEditingDate] = useState(false)
@@ -61,10 +54,7 @@ export function ClientRow({
 
   const isArchived = activeTab === 'archived'
   const isFocusMode = focusTab !== 'overview'
-  const focusedType = isFocusMode ? (focusTab as ExperienceType) : null
-  const otherTypes = focusedType
-    ? EXPERIENCE_TYPES.filter((t) => t !== focusedType)
-    : []
+  const activeStage = getActiveStage(client, now)
 
   async function saveName() {
     setEditingName(false)
@@ -135,6 +125,38 @@ export function ClientRow({
   function formatSignedDate(dateStr: string): string {
     const [y, m, d] = dateStr.split('-')
     return `${m}/${d}/${y}`
+  }
+
+  function getSegmentStatuses(): ('done' | 'failed' | 'pending')[] {
+    const nowEff = getNowEffective(client, now)
+    return EXPERIENCE_TYPES.map((expType) => {
+      const exp = client.client_experiences.find((e) => e.experience_type === expType)
+      if (!exp) return 'pending'
+      const dueAt = getDueAt(client.signed_on_date, expType)
+      const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+      const status = getDerivedStatus({
+        status: exp.status,
+        completed_at: exp.completed_at,
+        dueAt: dueAtEff,
+        now: nowEff,
+      })
+      if (status === 'done' || status === 'done_late') return 'done'
+      if (status === 'failed') return 'failed'
+      return 'pending'
+    })
+  }
+
+  function getTrackGradient(): string {
+    const statuses = getSegmentStatuses()
+    const colorMap = (s: 'done' | 'failed' | 'pending') => {
+      if (s === 'done') return 'rgb(34,197,94)'
+      if (s === 'failed') return 'rgb(239,68,68)'
+      return 'transparent'
+    }
+    const c1 = colorMap(statuses[0])
+    const c2 = colorMap(statuses[1])
+    const c3 = colorMap(statuses[2])
+    return `linear-gradient(to right, ${c1} 0%, ${c1} 33%, ${c2} 33%, ${c2} 66%, ${c3} 66%, ${c3} 100%)`
   }
 
   return (
@@ -263,75 +285,43 @@ export function ClientRow({
         </div>
       </div>
 
-      {/* Right column: experience cards */}
-      <div className="flex-1 flex items-stretch">
-        {isFocusMode && focusedType ? (
-          <>
-            {/* Focus mode: one large card */}
-            <div className="flex-1">
-              {client.client_experiences
-                .filter((e) => e.experience_type === focusedType)
-                .map((exp) => (
-                  <ExperienceCard
-                    key={exp.id}
-                    client={client}
-                    experience={exp}
-                    now={now}
-                    variant="focus"
-                    isArchived={isArchived}
-                    updateClientLocal={updateClientLocal}
-                  />
-                ))}
-            </div>
-            {/* Mini indicators for other milestones */}
-            <div className="flex flex-col justify-center gap-2 p-3 border-l border-border min-w-[140px]">
-              {otherTypes.map((expType) => {
-                const exp = client.client_experiences.find(
-                  (e) => e.experience_type === expType
-                )
-                if (!exp) return null
-                const dueAt = getDueAt(client.signed_on_date, expType)
-                const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
-                const nowEff = getNowEffective(client, now)
-                const secondsRemaining = (dueAtEff.getTime() - nowEff.getTime()) / 1000
-                const derivedStatus = getDerivedStatus({
-                  status: exp.status,
-                  completed_at: exp.completed_at,
-                  dueAt: dueAtEff,
-                  now: nowEff,
-                })
-
-                return (
-                  <MiniIndicator
-                    key={exp.id}
-                    label={EXPERIENCE_LABELS[expType]}
-                    timeRemaining={formatDurationCompact(secondsRemaining)}
-                    derivedStatus={derivedStatus}
-                  />
-                )
-              })}
-            </div>
-          </>
-        ) : (
-          /* Overview mode: 3 cards side by side */
-          EXPERIENCE_TYPES.map((expType) => {
-            const exp = client.client_experiences.find(
-              (e) => e.experience_type === expType
-            )
-            if (!exp) return null
-            return (
-              <ExperienceCard
-                key={exp.id}
-                client={client}
-                experience={exp}
-                now={now}
-                variant="overview"
-                isArchived={isArchived}
-                updateClientLocal={updateClientLocal}
-              />
-            )
-          })
-        )}
+      {/* Right column: timeline track + nodes */}
+      <div className="flex-1 relative flex items-center justify-between py-6 px-8 min-h-[140px]">
+        {/* Track: base dotted line */}
+        <div
+          className="absolute left-8 right-8 top-[calc(50%+8px)] -translate-y-1/2 h-[3px] rounded-full"
+          style={{
+            backgroundImage: 'repeating-linear-gradient(to right, var(--muted) 0, var(--muted) 6px, transparent 6px, transparent 12px)',
+          }}
+          aria-hidden
+        />
+        {/* Track: solid color overlay for done/failed segments */}
+        <div
+          className="absolute left-8 right-8 top-[calc(50%+8px)] -translate-y-1/2 h-[3px] rounded-full"
+          style={{
+            background: getTrackGradient(),
+          }}
+          aria-hidden
+        />
+        {EXPERIENCE_TYPES.map((expType) => {
+          const exp = client.client_experiences.find(
+            (e) => e.experience_type === expType
+          )
+          if (!exp) return null
+          return (
+            <TimelineNode
+              key={exp.id}
+              experience={exp}
+              client={client}
+              now={now}
+              isFocused={focusTab === expType}
+              isFocusMode={isFocusMode}
+              isActiveStage={expType === activeStage}
+              isArchived={isArchived}
+              updateClientLocal={updateClientLocal}
+            />
+          )
+        })}
       </div>
     </div>
   )
