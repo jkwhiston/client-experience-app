@@ -1,0 +1,4722 @@
+================================================================================
+CLIENT EXPERIENCE TRACKING APP — FULL CODEBASE
+================================================================================
+Generated: 2026-02-10
+================================================================================
+
+
+================================================================================
+FILE: .gitignore
+================================================================================
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+
+================================================================================
+FILE: BUILD_SPEC.md
+================================================================================
+# Cursor Agent Build Spec — Client Experience Tracker (Supabase + Vercel)
+
+## 0) Goal (what you are building)
+Build a simple, elegant web app for a tax firm to track whether we delivered 3 time-based "client experience" milestones after a client signs on:
+
+- **24‑Hour Experience**
+- **14‑Day Experience**
+- **30‑Day Experience**
+
+Each client appears as a **row**, and each row has **three milestone cards** (24h / 14d / 30d). Each card has:
+- a live countdown (days/hours/minutes/seconds)
+- a status dropdown (Pending / Yes / No)
+- a clean status label (Done / Done late / Failed)
+- a notes icon that opens a **simple notes modal** (markdown supported, auto-save, copy)
+
+Use **Supabase** as the database (+ optional Supabase Auth), and deploy on **Vercel** with a GitHub repo.
+
+**Default theme = Dark mode.** Provide a theme toggle (Dark/Light), but default to Dark.
+
+## 1) Reference layout (wireframes to match)
+Follow these attached wireframes closely (do not invent a new layout):
+
+- Main view (Option A / overview rows): `wireframe_option_A_clean_v2.png`
+- Focus tabs / triage mode: `wireframe_focus_mode_clean.png`
+- Notes modal (simple): `wireframe_notes_modal_simple.png`  
+- Archived tab: `wireframe_archived_clean.png`
+
+UI should be **simple + elegant**:
+- clean spacing
+- subtle borders
+- minimal but clear color cues
+- no clutter / no overlapping elements
+- form and function should feel "calm and premium"
+
+## 2) Tech stack (use this)
+- **Next.js (App Router) + TypeScript**
+- **Tailwind CSS**
+- **shadcn/ui** components (Button, Card, Tabs, Dialog, DropdownMenu, Input, Badge, Popover, Calendar)
+- **lucide-react** icons
+- **next-themes** for light/dark (default: dark)
+- **Supabase JS** client
+- **date-fns + date-fns-tz** (timezone-safe deadlines)
+- **react-markdown + remark-gfm** (markdown rendering in notes)
+
+Avoid heavy editors unless necessary. Keep notes modal simple.
+
+## 3) Core behaviors (must match)
+### 3.1 Deadline calculations (IMPORTANT)
+**Firm timezone matters.** Add a constant:
+- `FIRM_TIMEZONE` from env `NEXT_PUBLIC_FIRM_TIMEZONE` (fallback `'America/New_York'`).
+All due times are computed in this timezone.
+
+**24-hour rule (special):**
+- If a client signs on `11/24/2026`, the 24-hour deadline is **11:59:59 PM on 11/25/2026** (end of the next day).
+- i.e. `due_24h = endOfDay(sign_on_date + 1 day)`.
+
+For consistency:
+- `due_14d = endOfDay(sign_on_date + 14 days)`
+- `due_30d = endOfDay(sign_on_date + 30 days)`
+where `endOfDay` means **23:59:59** in the firm timezone.
+
+### 3.2 Status dropdown (Pending / Yes / No)
+Each milestone has a dropdown:
+- **Pending** (default)
+- **Yes** (delivered)
+- **No** (failed)
+
+Derived display logic:
+- If status = **Yes**:
+  - if `completed_at <= due_at` → ✅ **Done** ("Early by X")
+  - if `completed_at > due_at` → ⚠️ **Done late** ("Late by X")
+- If status = **No** → ❌ **Failed**
+- If status = **Pending**:
+  - if `now > due_at` → ❌ **Failed (past due)** (auto-fail visually; do NOT force-write `No` to DB)
+  - else → Pending
+
+### 3.3 Countdown freeze behavior
+- If status = **Yes**, the timer **freezes** and shows how early/late completion was.
+- If status = Pending and not overdue, timer runs live.
+- If overdue and still Pending, show "Past due by …" (and style as Failed).
+
+### 3.4 Color logic (visual urgency)
+Only apply urgency colors when the milestone is effectively **Pending** (not Yes/No).
+
+- **24‑Hour**: turn **red** when remaining time <= **8 hours**
+- **14‑Day**: turn **yellow** when remaining <= **5 days**, **red** when remaining <= **2 days**
+- **30‑Day**: same as 14‑Day
+
+Done: muted/gray  
+Done late: warning/amber (subtle)  
+Failed: red (persistent)
+
+Use elegant styling: prefer **left border + soft tint** over fully saturated backgrounds.
+
+### 3.5 Notes modal (simple like the provided example)
+Modal requirements:
+- Title includes both: **Client Name • Experience Type**
+- Small helper text: "Click inside to edit (Markdown supported). Changes save automatically."
+- Main content area:
+  - markdown is supported and readable
+  - editable by clicking into the content
+  - auto-save (debounced) on change
+  - show "Saved • just now"
+- Copy icon copies the raw markdown to clipboard
+- Close button
+
+Keep it visually similar to the screenshot example:
+- dark modal surface
+- subtle border
+- large readable content area
+- scroll inside content panel
+
+### 3.6 Inline editing
+- Client **name** and **signed-on date** are editable in-place.
+- Click → becomes input/date picker → blur/enter saves.
+- Changes persist to Supabase immediately.
+
+### 3.7 Focus tabs (triage mode)
+Below filters, include tabs:
+- Overview
+- 24‑Hour Focus
+- 14‑Day Focus
+- 30‑Day Focus
+
+Behavior:
+- **Overview**: each row shows 3 cards (24h/14d/30d)
+- **Focus**: each row shows only the focused milestone card, plus small "mini" indicators for the other 2 milestones.
+
+In Focus mode, default sorting should be by the focused milestone due date (soonest first).
+
+### 3.8 Filters + sorting
+Filters:
+- All / Pending / Done / Late / Failed
+Search:
+- search by client name
+Sorting:
+- Name A→Z
+- Name Z→A
+- Next 24‑Hour deadline
+- Next 14‑Day deadline
+- Next 30‑Day deadline
+
+Summary boxes (24h/14d/30d) show counts for:
+- Pending, Done, Late, Failed
+Each count is clickable:
+- Clicking a count should set:
+  - Focus tab to that milestone
+  - Status filter to that status
+
+### 3.9 Pause/resume (per client row)
+In each client row's `⋯` menu:
+- Pause timers / Resume timers
+- Archive / Unarchive
+
+Pause behavior:
+- Pausing freezes all 3 timers for that client.
+- Resume extends deadlines by the paused duration.
+
+Implementation requirement:
+- Track pause start time and total paused seconds so deadlines shift correctly.
+
+### 3.10 Archived tab
+Top-level tab: Active / Archived
+- Archived view lists archived clients
+- Can unarchive
+- Keep the same clean row layout (or a simplified row layout is acceptable)
+- Archived clients do not appear in Active.
+
+## 4) Database (Supabase) — schema + policies
+### 4.1 Tables
+Create 2 tables: `clients` and `client_experiences`
+
+#### Postgres enums (recommended)
+- `experience_type`: `hour24`, `day14`, `day30`
+- `experience_status`: `pending`, `yes`, `no`
+
+#### `clients`
+Fields:
+- `id` uuid PK default gen_random_uuid()
+- `name` text NOT NULL
+- `signed_on_date` date NOT NULL
+- `is_archived` boolean NOT NULL default false
+- `archived_at` timestamptz null
+- `paused` boolean NOT NULL default false
+- `pause_started_at` timestamptz null
+- `paused_total_seconds` integer NOT NULL default 0
+- `created_at` timestamptz NOT NULL default now()
+- `updated_at` timestamptz NOT NULL default now()
+
+#### `client_experiences`
+Fields:
+- `id` uuid PK default gen_random_uuid()
+- `client_id` uuid NOT NULL references clients(id) on delete cascade
+- `experience_type` enum NOT NULL
+- `status` enum NOT NULL default 'pending'
+- `completed_at` timestamptz null
+- `notes` text NOT NULL default ''
+- `created_at` timestamptz NOT NULL default now()
+- `updated_at` timestamptz NOT NULL default now()
+
+Constraints:
+- unique `(client_id, experience_type)`
+
+### 4.2 SQL (copy into Supabase SQL editor)
+```sql
+-- Enable UUID generation
+create extension if not exists pgcrypto;
+
+-- Enums
+do $$ begin
+  create type experience_type as enum ('hour24', 'day14', 'day30');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type experience_status as enum ('pending', 'yes', 'no');
+exception when duplicate_object then null; end $$;
+
+-- Clients
+create table if not exists public.clients (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  signed_on_date date not null,
+  is_archived boolean not null default false,
+  archived_at timestamptz,
+  paused boolean not null default false,
+  pause_started_at timestamptz,
+  paused_total_seconds integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Experiences
+create table if not exists public.client_experiences (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references public.clients(id) on delete cascade,
+  experience_type experience_type not null,
+  status experience_status not null default 'pending',
+  completed_at timestamptz,
+  notes text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (client_id, experience_type)
+);
+
+-- Updated-at trigger function
+create or replace function public.set_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_clients_updated_at on public.clients;
+create trigger trg_clients_updated_at
+before update on public.clients
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_experiences_updated_at on public.client_experiences;
+create trigger trg_experiences_updated_at
+before update on public.client_experiences
+for each row execute function public.set_updated_at();
+```
+
+
+================================================================================
+FILE: README.md
+================================================================================
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+
+================================================================================
+FILE: package.json
+================================================================================
+{
+  "name": "client-experience-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3002",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.95.3",
+    "@tailwindcss/typography": "^0.5.19",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "lucide-react": "^0.563.0",
+    "next": "16.1.6",
+    "next-themes": "^0.4.6",
+    "radix-ui": "^1.4.3",
+    "react": "19.2.3",
+    "react-day-picker": "^9.13.1",
+    "react-dom": "19.2.3",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "shadcn": "^3.8.4",
+    "tailwindcss": "^4",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^5"
+  }
+}
+
+
+================================================================================
+FILE: tsconfig.json
+================================================================================
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+
+================================================================================
+FILE: components.json
+================================================================================
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "app/globals.css",
+    "baseColor": "slate",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "iconLibrary": "lucide",
+  "rtl": false,
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "registries": {}
+}
+
+
+================================================================================
+FILE: next.config.ts
+================================================================================
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+
+
+================================================================================
+FILE: eslint.config.mjs
+================================================================================
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
+
+export default eslintConfig;
+
+
+================================================================================
+FILE: postcss.config.mjs
+================================================================================
+const config = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default config;
+
+
+================================================================================
+FILE: middleware.ts
+================================================================================
+import { NextResponse, type NextRequest } from 'next/server'
+
+const AUTH_COOKIE = 'cet-auth'
+const AUTH_TOKEN = 'authenticated'
+
+export function middleware(request: NextRequest) {
+  const authCookie = request.cookies.get(AUTH_COOKIE)
+  const isAuthenticated = authCookie?.value === AUTH_TOKEN
+  const isLoginPage = request.nextUrl.pathname.startsWith('/login')
+  const isAuthApi = request.nextUrl.pathname.startsWith('/api/auth')
+
+  // Allow auth API and login page through
+  if (isAuthApi) {
+    return NextResponse.next()
+  }
+
+  // Redirect unauthenticated users to login
+  if (!isAuthenticated && !isLoginPage) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
+
+  // Redirect authenticated users away from login
+  if (isAuthenticated && isLoginPage) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/'
+    return NextResponse.redirect(url)
+  }
+
+  return NextResponse.next()
+}
+
+export const config = {
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
+}
+
+
+================================================================================
+FILE: app/globals.css
+================================================================================
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.129 0.042 264.695);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.129 0.042 264.695);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.129 0.042 264.695);
+  --primary: oklch(0.208 0.042 265.755);
+  --primary-foreground: oklch(0.984 0.003 247.858);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.704 0.04 256.788);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.984 0.003 247.858);
+  --sidebar-foreground: oklch(0.129 0.042 264.695);
+  --sidebar-primary: oklch(0.208 0.042 265.755);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.968 0.007 247.896);
+  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
+  --sidebar-border: oklch(0.929 0.013 255.508);
+  --sidebar-ring: oklch(0.704 0.04 256.788);
+}
+
+.dark {
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.929 0.013 255.508);
+  --primary-foreground: oklch(0.208 0.042 265.755);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.984 0.003 247.858);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.551 0.027 264.364);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.279 0.041 260.031);
+  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.551 0.027 264.364);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+
+================================================================================
+FILE: app/layout.tsx
+================================================================================
+import type { Metadata } from 'next'
+import { Geist, Geist_Mono } from 'next/font/google'
+import { ThemeProvider } from '@/components/theme-provider'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import './globals.css'
+
+const geistSans = Geist({
+  variable: '--font-geist-sans',
+  subsets: ['latin'],
+})
+
+const geistMono = Geist_Mono({
+  variable: '--font-geist-mono',
+  subsets: ['latin'],
+})
+
+export const metadata: Metadata = {
+  title: 'Client Experience Tracker',
+  description: 'Track client experience milestones',
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem={false}
+          disableTransitionOnChange
+        >
+          <TooltipProvider>
+            {children}
+          </TooltipProvider>
+        </ThemeProvider>
+      </body>
+    </html>
+  )
+}
+
+
+================================================================================
+FILE: app/page.tsx
+================================================================================
+import { ClientDashboard } from '@/components/client-dashboard'
+
+export default function HomePage() {
+  return <ClientDashboard />
+}
+
+
+================================================================================
+FILE: app/api/auth/route.ts
+================================================================================
+import { NextRequest, NextResponse } from 'next/server'
+
+const AUTH_COOKIE = 'cet-auth'
+const AUTH_TOKEN = 'authenticated'
+
+export async function POST(request: NextRequest) {
+  const { password } = await request.json()
+  const appPassword = process.env.APP_PASSWORD || 'tracker2026'
+
+  if (password === appPassword) {
+    const response = NextResponse.json({ success: true })
+    response.cookies.set(AUTH_COOKIE, AUTH_TOKEN, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+    })
+    return response
+  }
+
+  return NextResponse.json({ success: false, error: 'Incorrect password' }, { status: 401 })
+}
+
+export async function DELETE() {
+  const response = NextResponse.json({ success: true })
+  response.cookies.set(AUTH_COOKIE, '', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0,
+  })
+  return response
+}
+
+
+================================================================================
+FILE: app/login/page.tsx
+================================================================================
+'use client'
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Lock } from 'lucide-react'
+
+export default function LoginPage() {
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.success) {
+        setError(data.error || 'Incorrect password')
+        return
+      }
+
+      router.push('/')
+      router.refresh()
+    } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="text-center">
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+            <Lock className="h-6 w-6 text-muted-foreground" />
+          </div>
+          <CardTitle className="text-2xl font-bold">Client Experience Tracker</CardTitle>
+          <CardDescription>Enter the password to continue</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="Enter password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+
+            {error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
+
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? 'Checking...' : 'Enter'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+
+================================================================================
+FILE: lib/types.ts
+================================================================================
+export type ExperienceType = 'hour24' | 'day14' | 'day30'
+export type ExperienceStatus = 'pending' | 'yes' | 'no'
+export type DerivedStatus = 'pending' | 'done' | 'done_late' | 'failed'
+export type FocusTab = 'overview' | 'hour24' | 'day14' | 'day30'
+export type StatusFilter = 'all' | 'pending' | 'done' | 'late' | 'failed'
+export type ActiveTab = 'active' | 'archived'
+
+export type SortOption =
+  | 'name_asc'
+  | 'name_desc'
+  | 'deadline_hour24'
+  | 'deadline_day14'
+  | 'deadline_day30'
+
+export interface Client {
+  id: string
+  name: string
+  signed_on_date: string // date string YYYY-MM-DD
+  is_archived: boolean
+  archived_at: string | null
+  paused: boolean
+  pause_started_at: string | null
+  paused_total_seconds: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ClientExperience {
+  id: string
+  client_id: string
+  experience_type: ExperienceType
+  status: ExperienceStatus
+  completed_at: string | null
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ClientWithExperiences extends Client {
+  client_experiences: ClientExperience[]
+}
+
+export const EXPERIENCE_LABELS: Record<ExperienceType, string> = {
+  hour24: '24-Hour',
+  day14: '14-Day',
+  day30: '30-Day',
+}
+
+export const EXPERIENCE_TYPES: ExperienceType[] = ['hour24', 'day14', 'day30']
+
+
+================================================================================
+FILE: lib/utils.ts
+================================================================================
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
+
+================================================================================
+FILE: lib/deadlines.ts
+================================================================================
+import { addDays } from 'date-fns'
+import { toZonedTime, fromZonedTime } from 'date-fns-tz'
+import type { ExperienceType, ExperienceStatus, DerivedStatus, ClientWithExperiences } from './types'
+
+const FIRM_TIMEZONE = process.env.NEXT_PUBLIC_FIRM_TIMEZONE || 'America/New_York'
+
+/**
+ * Get the deadline for a given experience type based on signed-on date.
+ * All deadlines are 11:59 PM in the firm timezone.
+ *
+ * 24h: 11:59 PM on signed_on_date + 1 day
+ * 14d: 11:59 PM on signed_on_date + 14 days
+ * 30d: 11:59 PM on signed_on_date + 30 days
+ */
+export function getDueAt(
+  signedOnDate: string | Date,
+  experienceType: ExperienceType,
+  firmTz: string = FIRM_TIMEZONE
+): Date {
+  const baseDate = typeof signedOnDate === 'string' ? new Date(signedOnDate + 'T00:00:00') : signedOnDate
+
+  let daysToAdd: number
+  switch (experienceType) {
+    case 'hour24':
+      daysToAdd = 1
+      break
+    case 'day14':
+      daysToAdd = 14
+      break
+    case 'day30':
+      daysToAdd = 30
+      break
+  }
+
+  const targetDate = addDays(baseDate, daysToAdd)
+
+  // Build end-of-day in firm timezone: 11:59 PM
+  const year = targetDate.getFullYear()
+  const month = targetDate.getMonth()
+  const day = targetDate.getDate()
+
+  // Create a date representing 11:59 PM in the firm timezone
+  const endOfDayInFirmTz = new Date(year, month, day, 23, 59, 0, 0)
+  // Convert from firm timezone to UTC
+  const utcDate = fromZonedTime(endOfDayInFirmTz, firmTz)
+
+  return utcDate
+}
+
+/**
+ * Shift a deadline by the total paused seconds.
+ */
+export function getDueAtEffective(dueAt: Date, pausedTotalSeconds: number): Date {
+  return new Date(dueAt.getTime() + pausedTotalSeconds * 1000)
+}
+
+/**
+ * Get the effective "now" for a client.
+ * If paused, returns pause_started_at (so countdowns freeze).
+ * Otherwise returns current time.
+ */
+export function getNowEffective(client: ClientWithExperiences, now: Date = new Date()): Date {
+  if (client.paused && client.pause_started_at) {
+    return new Date(client.pause_started_at)
+  }
+  return now
+}
+
+/**
+ * Derive the display status from the raw status, completion time, and deadline.
+ */
+export function getDerivedStatus(params: {
+  status: ExperienceStatus
+  completed_at: string | null
+  dueAt: Date
+  now: Date
+}): DerivedStatus {
+  const { status, completed_at, dueAt, now } = params
+
+  if (status === 'yes') {
+    if (completed_at) {
+      const completedDate = new Date(completed_at)
+      return completedDate <= dueAt ? 'done' : 'done_late'
+    }
+    return 'done'
+  }
+
+  if (status === 'no') {
+    return 'failed'
+  }
+
+  // status === 'pending'
+  if (now > dueAt) {
+    return 'failed' // Past due, visually failed (not written to DB)
+  }
+
+  return 'pending'
+}
+
+/**
+ * Format a duration in seconds to a human-readable string.
+ * e.g. "2d 5h 12m 34s"
+ */
+export function formatDuration(totalSeconds: number): string {
+  const abs = Math.abs(Math.floor(totalSeconds))
+  const days = Math.floor(abs / 86400)
+  const hours = Math.floor((abs % 86400) / 3600)
+  const minutes = Math.floor((abs % 3600) / 60)
+  const seconds = abs % 60
+
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0 || days > 0) parts.push(`${hours}h`)
+  parts.push(`${minutes}m`)
+  parts.push(`${seconds}s`)
+
+  return parts.join(' ')
+}
+
+/**
+ * A number/unit pair for split-size rendering.
+ */
+export interface DurationPart {
+  number: string
+  unit: string
+}
+
+/**
+ * Format duration as multi-line structured parts for card display.
+ * Each part has a separate number and unit for independent sizing.
+ */
+export function formatDurationParts(totalSeconds: number): {
+  days: DurationPart
+  hours: DurationPart
+  mins: DurationPart
+  secs: DurationPart
+} {
+  const abs = Math.abs(Math.floor(totalSeconds))
+  const days = Math.floor(abs / 86400)
+  const hours = Math.floor((abs % 86400) / 3600)
+  const minutes = Math.floor((abs % 3600) / 60)
+  const seconds = abs % 60
+
+  return {
+    days: { number: String(days), unit: days !== 1 ? 'days' : 'day' },
+    hours: { number: String(hours), unit: hours !== 1 ? 'hours' : 'hour' },
+    mins: { number: String(minutes), unit: 'm' },
+    secs: { number: String(seconds).padStart(2, '0'), unit: 's' },
+  }
+}
+
+/**
+ * Format duration compactly for focus mode and mini indicators.
+ * e.g. "4h 12m" or "6d"
+ */
+export function formatDurationCompact(totalSeconds: number): string {
+  const abs = Math.abs(Math.floor(totalSeconds))
+  const days = Math.floor(abs / 86400)
+  const hours = Math.floor((abs % 86400) / 3600)
+  const minutes = Math.floor((abs % 3600) / 60)
+
+  if (days > 0) return `${days}d`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
+}
+
+/**
+ * Determine urgency level for countdown coloring.
+ * Only applies to pending milestones.
+ */
+export function getUrgency(
+  experienceType: ExperienceType,
+  secondsRemaining: number
+): 'normal' | 'yellow' | 'red' {
+  if (secondsRemaining <= 0) return 'red'
+
+  switch (experienceType) {
+    case 'hour24':
+      // Red when <= 8 hours
+      if (secondsRemaining <= 8 * 3600) return 'red'
+      return 'normal'
+    case 'day14':
+    case 'day30':
+      // Red when <= 2 days, yellow when <= 5 days
+      if (secondsRemaining <= 2 * 86400) return 'red'
+      if (secondsRemaining <= 5 * 86400) return 'yellow'
+      return 'normal'
+  }
+}
+
+/**
+ * Format the due date and time display string.
+ * e.g. "Due: 2/9/2026, 11:59 PM"
+ */
+export function formatDueTime(dueAt: Date, firmTz: string = FIRM_TIMEZONE): string {
+  const zonedDue = toZonedTime(dueAt, firmTz)
+  const month = zonedDue.getMonth() + 1
+  const day = zonedDue.getDate()
+  const year = zonedDue.getFullYear()
+  const hours = zonedDue.getHours()
+  const minutes = zonedDue.getMinutes()
+  const ampm = hours >= 12 ? 'PM' : 'AM'
+  const displayHours = hours % 12 || 12
+
+  return `Due: ${month}/${day}/${year}, ${displayHours}:${String(minutes).padStart(2, '0')} ${ampm}`
+}
+
+/**
+ * Format the due date+time for focus mode subtitle.
+ * e.g. "Due: 11:59:59 PM (end of day)"
+ */
+export function formatDueTimeFull(dueAt: Date, firmTz: string = FIRM_TIMEZONE): string {
+  return `${formatDueTime(dueAt, firmTz)} (end of day)`
+}
+
+
+================================================================================
+FILE: lib/queries.ts
+================================================================================
+import { createClient } from '@/lib/supabase/client'
+import type { ClientWithExperiences, ExperienceType } from './types'
+
+const supabase = createClient()
+
+export async function fetchClients(): Promise<ClientWithExperiences[]> {
+  const { data, error } = await supabase
+    .from('clients')
+    .select('*, client_experiences(*)')
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    console.error('Error fetching clients:', error)
+    return []
+  }
+
+  return (data as ClientWithExperiences[]) || []
+}
+
+export async function createClientWithExperiences(
+  name: string,
+  signedOnDate: string
+): Promise<ClientWithExperiences | null> {
+  // Insert client
+  const { data: client, error: clientError } = await supabase
+    .from('clients')
+    .insert({ name, signed_on_date: signedOnDate })
+    .select()
+    .single()
+
+  if (clientError || !client) {
+    console.error('Error creating client:', clientError)
+    return null
+  }
+
+  // Insert 3 experience rows
+  const experiences: { client_id: string; experience_type: ExperienceType }[] = [
+    { client_id: client.id, experience_type: 'hour24' },
+    { client_id: client.id, experience_type: 'day14' },
+    { client_id: client.id, experience_type: 'day30' },
+  ]
+
+  const { data: exps, error: expError } = await supabase
+    .from('client_experiences')
+    .insert(experiences)
+    .select()
+
+  if (expError) {
+    console.error('Error creating experiences:', expError)
+    return null
+  }
+
+  return {
+    ...client,
+    client_experiences: exps || [],
+  } as ClientWithExperiences
+}
+
+export async function updateClient(
+  id: string,
+  updates: Record<string, unknown>
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('clients')
+    .update(updates)
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error updating client:', error)
+    return false
+  }
+  return true
+}
+
+export async function updateExperience(
+  id: string,
+  updates: Record<string, unknown>
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('client_experiences')
+    .update(updates)
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error updating experience:', error)
+    return false
+  }
+  return true
+}
+
+
+================================================================================
+FILE: lib/supabase/client.ts
+================================================================================
+import { createBrowserClient } from '@supabase/ssr'
+
+export function createClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+}
+
+
+================================================================================
+FILE: lib/supabase/middleware.ts
+================================================================================
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
+
+export async function updateSession(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({
+    request,
+  })
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            request.cookies.set(name, value)
+          )
+          supabaseResponse = NextResponse.next({
+            request,
+          })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (
+    !user &&
+    !request.nextUrl.pathname.startsWith('/login')
+  ) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
+
+  return supabaseResponse
+}
+
+
+================================================================================
+FILE: lib/supabase/server.ts
+================================================================================
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+
+export async function createClient() {
+  const cookieStore = await cookies()
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing sessions.
+          }
+        },
+      },
+    }
+  )
+}
+
+
+================================================================================
+FILE: components/client-dashboard.tsx
+================================================================================
+'use client'
+
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import type {
+  ClientWithExperiences,
+  ActiveTab,
+  FocusTab,
+  StatusFilter,
+  SortOption,
+  ExperienceType,
+  DerivedStatus,
+} from '@/lib/types'
+import { EXPERIENCE_TYPES } from '@/lib/types'
+import {
+  getDueAt,
+  getDueAtEffective,
+  getNowEffective,
+  getDerivedStatus,
+} from '@/lib/deadlines'
+import { fetchClients } from '@/lib/queries'
+import { DashboardHeader } from './dashboard-header'
+import { SummaryRow } from './summary-row'
+import { ControlsBar } from './controls-bar'
+import { FocusTabs } from './focus-tabs'
+import { ClientList } from './client-list'
+
+export function ClientDashboard() {
+  const [clients, setClients] = useState<ClientWithExperiences[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<ActiveTab>('active')
+  const [focusTab, setFocusTab] = useState<FocusTab>('overview')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [sortOption, setSortOption] = useState<SortOption>('name_asc')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [now, setNow] = useState(new Date())
+
+  // Tick every second for live countdowns
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(new Date())
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Fetch clients on mount
+  useEffect(() => {
+    loadClients()
+  }, [])
+
+  const loadClients = async () => {
+    setLoading(true)
+    const data = await fetchClients()
+    setClients(data)
+    setLoading(false)
+  }
+
+  // Optimistic update helper
+  const updateClientLocal = useCallback(
+    (clientId: string, updater: (c: ClientWithExperiences) => ClientWithExperiences) => {
+      setClients((prev) =>
+        prev.map((c) => (c.id === clientId ? updater(c) : c))
+      )
+    },
+    []
+  )
+
+  const addClientLocal = useCallback((client: ClientWithExperiences) => {
+    setClients((prev) => [client, ...prev])
+  }, [])
+
+  // Get derived status for a specific experience
+  const getExpDerivedStatus = useCallback(
+    (client: ClientWithExperiences, expType: ExperienceType): DerivedStatus => {
+      const exp = client.client_experiences.find(
+        (e) => e.experience_type === expType
+      )
+      if (!exp) return 'pending'
+
+      const dueAt = getDueAt(client.signed_on_date, expType)
+      const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+      const nowEff = getNowEffective(client, now)
+
+      return getDerivedStatus({
+        status: exp.status,
+        completed_at: exp.completed_at,
+        dueAt: dueAtEff,
+        now: nowEff,
+      })
+    },
+    [now]
+  )
+
+  // Compute summary counts
+  const computeSummaryCounts = useCallback(
+    (expType: ExperienceType) => {
+      const activeClients = clients.filter((c) => !c.is_archived)
+      const counts = { pending: 0, done: 0, late: 0, failed: 0 }
+
+      for (const client of activeClients) {
+        const status = getExpDerivedStatus(client, expType)
+        if (status === 'pending') counts.pending++
+        else if (status === 'done') counts.done++
+        else if (status === 'done_late') counts.late++
+        else if (status === 'failed') counts.failed++
+      }
+
+      return counts
+    },
+    [clients, getExpDerivedStatus]
+  )
+
+  // Filter and sort clients
+  const getFilteredClients = useCallback(() => {
+    let filtered = clients.filter((c) =>
+      activeTab === 'active' ? !c.is_archived : c.is_archived
+    )
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter((c) =>
+        c.name.toLowerCase().includes(query)
+      )
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((client) => {
+        if (focusTab !== 'overview') {
+          // Focus mode: filter by focused milestone
+          const status = getExpDerivedStatus(client, focusTab as ExperienceType)
+          return matchesFilter(status, statusFilter)
+        } else {
+          // Overview: include if ANY milestone matches
+          return EXPERIENCE_TYPES.some((expType) => {
+            const status = getExpDerivedStatus(client, expType)
+            return matchesFilter(status, statusFilter)
+          })
+        }
+      })
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      switch (sortOption) {
+        case 'name_asc':
+          return a.name.localeCompare(b.name)
+        case 'name_desc':
+          return b.name.localeCompare(a.name)
+        case 'deadline_hour24':
+        case 'deadline_day14':
+        case 'deadline_day30': {
+          const expType = sortOption.replace('deadline_', '') as ExperienceType
+          const dueA = getDueAtEffective(
+            getDueAt(a.signed_on_date, expType),
+            a.paused_total_seconds
+          )
+          const dueB = getDueAtEffective(
+            getDueAt(b.signed_on_date, expType),
+            b.paused_total_seconds
+          )
+          return dueA.getTime() - dueB.getTime()
+        }
+        default:
+          return 0
+      }
+    })
+
+    return filtered
+  }, [clients, activeTab, searchQuery, statusFilter, focusTab, sortOption, getExpDerivedStatus])
+
+  // When switching to a focus tab, auto-set sort to that deadline
+  const handleFocusTabChange = useCallback((tab: FocusTab) => {
+    setFocusTab(tab)
+    if (tab !== 'overview') {
+      setSortOption(`deadline_${tab}` as SortOption)
+    }
+  }, [])
+
+  // Handle summary count click
+  const handleSummaryClick = useCallback(
+    (expType: ExperienceType, filter: StatusFilter) => {
+      setFocusTab(expType as FocusTab)
+      setStatusFilter(filter)
+      setSortOption(`deadline_${expType}` as SortOption)
+    },
+    []
+  )
+
+  const filteredClients = getFilteredClients()
+
+  // Export CSV handler
+  useEffect(() => {
+    function handleExport() {
+      const archivedClients = clients.filter((c) => c.is_archived)
+      if (archivedClients.length === 0) return
+
+      const headers = ['Name', 'Signed On', 'Archived At', '24h Status', '14d Status', '30d Status']
+      const rows = archivedClients.map((c) => {
+        const getStatus = (type: ExperienceType) => {
+          const exp = c.client_experiences.find((e) => e.experience_type === type)
+          return exp ? getExpDerivedStatus(c, type) : 'unknown'
+        }
+        return [
+          c.name,
+          c.signed_on_date,
+          c.archived_at || '',
+          getStatus('hour24'),
+          getStatus('day14'),
+          getStatus('day30'),
+        ]
+      })
+
+      const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(',')).join('\n')
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'archived_clients.csv'
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+
+    window.addEventListener('export-csv', handleExport)
+    return () => window.removeEventListener('export-csv', handleExport)
+  }, [clients, getExpDerivedStatus])
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="mx-auto max-w-[1400px] px-4 py-4 sm:px-6 lg:px-8">
+        <DashboardHeader activeTab={activeTab} onActiveTabChange={setActiveTab} />
+
+        {activeTab === 'active' && (
+          <SummaryRow
+            computeCounts={computeSummaryCounts}
+            onCountClick={handleSummaryClick}
+          />
+        )}
+
+        <ControlsBar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          statusFilter={statusFilter}
+          onStatusFilterChange={setStatusFilter}
+          sortOption={sortOption}
+          onSortChange={setSortOption}
+          focusTab={focusTab}
+          activeTab={activeTab}
+          onAddClient={addClientLocal}
+        />
+
+        {activeTab === 'active' && (
+          <FocusTabs focusTab={focusTab} onFocusTabChange={handleFocusTabChange} />
+        )}
+
+        <ClientList
+          clients={filteredClients}
+          focusTab={focusTab}
+          activeTab={activeTab}
+          now={now}
+          loading={loading}
+          updateClientLocal={updateClientLocal}
+          getExpDerivedStatus={getExpDerivedStatus}
+        />
+      </div>
+    </div>
+  )
+}
+
+function matchesFilter(status: DerivedStatus, filter: StatusFilter): boolean {
+  switch (filter) {
+    case 'pending':
+      return status === 'pending'
+    case 'done':
+      return status === 'done'
+    case 'late':
+      return status === 'done_late'
+    case 'failed':
+      return status === 'failed'
+    default:
+      return true
+  }
+}
+
+
+================================================================================
+FILE: components/dashboard-header.tsx
+================================================================================
+'use client'
+
+import { useRouter } from 'next/navigation'
+import type { ActiveTab } from '@/lib/types'
+import { Button } from '@/components/ui/button'
+import { ThemeToggle } from './theme-toggle'
+import { LogOut } from 'lucide-react'
+
+interface DashboardHeaderProps {
+  activeTab: ActiveTab
+  onActiveTabChange: (tab: ActiveTab) => void
+}
+
+export function DashboardHeader({
+  activeTab,
+  onActiveTabChange,
+}: DashboardHeaderProps) {
+  const router = useRouter()
+
+  async function handleSignOut() {
+    await fetch('/api/auth', { method: 'DELETE' })
+    router.push('/login')
+    router.refresh()
+  }
+
+  return (
+    <div className="flex items-center justify-between pb-6">
+      <h1 className="text-2xl font-bold tracking-tight">
+        Client Experience Tracker
+      </h1>
+
+      <div className="flex items-center gap-2">
+        <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
+          <Button
+            variant={activeTab === 'active' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => onActiveTabChange('active')}
+            className="text-xs"
+          >
+            Active
+          </Button>
+          <Button
+            variant={activeTab === 'archived' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => onActiveTabChange('archived')}
+            className="text-xs"
+          >
+            Archived
+          </Button>
+        </div>
+
+        <ThemeToggle />
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleSignOut}
+          className="h-9 w-9"
+          title="Sign out"
+        >
+          <LogOut className="h-4 w-4" />
+          <span className="sr-only">Sign out</span>
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+
+================================================================================
+FILE: components/summary-row.tsx
+================================================================================
+'use client'
+
+import type { ExperienceType, StatusFilter } from '@/lib/types'
+import { EXPERIENCE_LABELS } from '@/lib/types'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
+interface SummaryRowProps {
+  computeCounts: (expType: ExperienceType) => {
+    pending: number
+    done: number
+    late: number
+    failed: number
+  }
+  onCountClick: (expType: ExperienceType, filter: StatusFilter) => void
+}
+
+const EXPERIENCE_TYPES: ExperienceType[] = ['hour24', 'day14', 'day30']
+
+export function SummaryRow({ computeCounts, onCountClick }: SummaryRowProps) {
+  return (
+    <div className="grid grid-cols-3 gap-4 pb-4">
+      {EXPERIENCE_TYPES.map((expType) => {
+        const counts = computeCounts(expType)
+        return (
+          <Card key={expType} className="bg-card/50">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-semibold">
+                {EXPERIENCE_LABELS[expType]} Summary
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-3">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                <button
+                  onClick={() => onCountClick(expType, 'pending')}
+                  className="hover:underline text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Pending: <span className="font-medium text-foreground">{counts.pending}</span>
+                </button>
+                <button
+                  onClick={() => onCountClick(expType, 'done')}
+                  className="hover:underline text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Done: <span className="font-medium text-green-500">{counts.done}</span>
+                </button>
+                <button
+                  onClick={() => onCountClick(expType, 'failed')}
+                  className="hover:underline text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Failed: <span className="font-medium text-red-500">{counts.failed}</span>
+                </button>
+                <button
+                  onClick={() => onCountClick(expType, 'late')}
+                  className="hover:underline text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Late: <span className="font-medium text-amber-500">{counts.late}</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1.5">
+                Click counts to filter
+              </p>
+            </CardContent>
+          </Card>
+        )
+      })}
+    </div>
+  )
+}
+
+
+================================================================================
+FILE: components/controls-bar.tsx
+================================================================================
+'use client'
+
+import { useState } from 'react'
+import type {
+  StatusFilter,
+  SortOption,
+  FocusTab,
+  ActiveTab,
+  ClientWithExperiences,
+} from '@/lib/types'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Search, Plus, Download } from 'lucide-react'
+import { AddClientDialog } from './add-client-dialog'
+
+interface ControlsBarProps {
+  searchQuery: string
+  onSearchChange: (q: string) => void
+  statusFilter: StatusFilter
+  onStatusFilterChange: (f: StatusFilter) => void
+  sortOption: SortOption
+  onSortChange: (s: SortOption) => void
+  focusTab: FocusTab
+  activeTab: ActiveTab
+  onAddClient: (client: ClientWithExperiences) => void
+}
+
+const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'done', label: 'Done' },
+  { value: 'late', label: 'Late' },
+  { value: 'failed', label: 'Failed' },
+]
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'name_asc', label: 'Name A→Z' },
+  { value: 'name_desc', label: 'Name Z→A' },
+  { value: 'deadline_hour24', label: 'Next 24-Hour deadline' },
+  { value: 'deadline_day14', label: 'Next 14-Day deadline' },
+  { value: 'deadline_day30', label: 'Next 30-Day deadline' },
+]
+
+export function ControlsBar({
+  searchQuery,
+  onSearchChange,
+  statusFilter,
+  onStatusFilterChange,
+  sortOption,
+  onSortChange,
+  focusTab,
+  activeTab,
+  onAddClient,
+}: ControlsBarProps) {
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
+
+  const isArchived = activeTab === 'archived'
+
+  return (
+    <div className="space-y-3 pb-4">
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder={isArchived ? 'Search archived clients...' : 'Search clients...'}
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="pl-9 h-9"
+          />
+        </div>
+
+        {/* Filter chips */}
+        <div className="flex items-center gap-1">
+          {isArchived ? (
+            <>
+              <FilterChip
+                label="All"
+                active={statusFilter === 'all'}
+                onClick={() => onStatusFilterChange('all')}
+              />
+              <FilterChip
+                label="Archived"
+                active={statusFilter !== 'all'}
+                onClick={() => onStatusFilterChange('all')}
+              />
+            </>
+          ) : (
+            STATUS_FILTERS.map((f) => (
+              <FilterChip
+                key={f.value}
+                label={f.label}
+                active={statusFilter === f.value}
+                onClick={() => onStatusFilterChange(f.value)}
+              />
+            ))
+          )}
+        </div>
+
+        {/* Sort + Add/Export */}
+        <div className="flex items-center gap-2 ml-auto">
+          {!isArchived && (
+            <Select value={sortOption} onValueChange={(v) => onSortChange(v as SortOption)}>
+              <SelectTrigger className="w-[220px] h-9 text-xs">
+                <SelectValue placeholder="Sort by..." />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {isArchived ? (
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => handleExportCSV()}>
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              Export CSV
+            </Button>
+          ) : (
+            <Button size="sm" className="text-xs" onClick={() => setAddDialogOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1.5" />
+              Add Client
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <AddClientDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        onAddClient={onAddClient}
+      />
+    </div>
+  )
+}
+
+function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <Button
+      variant={active ? 'default' : 'outline'}
+      size="sm"
+      className="h-7 text-xs px-3"
+      onClick={onClick}
+    >
+      {label}
+    </Button>
+  )
+}
+
+function handleExportCSV() {
+  // This is a placeholder — the actual implementation needs client data.
+  // We'll trigger a custom event that the dashboard can listen to.
+  const event = new CustomEvent('export-csv')
+  window.dispatchEvent(event)
+}
+
+
+================================================================================
+FILE: components/focus-tabs.tsx
+================================================================================
+'use client'
+
+import type { FocusTab } from '@/lib/types'
+import { Button } from '@/components/ui/button'
+
+interface FocusTabsProps {
+  focusTab: FocusTab
+  onFocusTabChange: (tab: FocusTab) => void
+}
+
+const TABS: { value: FocusTab; label: string }[] = [
+  { value: 'overview', label: 'Overview' },
+  { value: 'hour24', label: '24-Hour Focus' },
+  { value: 'day14', label: '14-Day Focus' },
+  { value: 'day30', label: '30-Day Focus' },
+]
+
+export function FocusTabs({ focusTab, onFocusTabChange }: FocusTabsProps) {
+  return (
+    <div className="flex items-center justify-between pb-4">
+      <div className="flex items-center gap-1">
+        {TABS.map((tab) => (
+          <Button
+            key={tab.value}
+            variant={focusTab === tab.value ? 'default' : 'outline'}
+            size="sm"
+            className="text-xs"
+            onClick={() => onFocusTabChange(tab.value)}
+          >
+            {tab.label}
+          </Button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {focusTab === 'overview'
+          ? 'Tip: Focus tabs show 1 card per row'
+          : `Sorted by soonest ${TABS.find((t) => t.value === focusTab)?.label?.replace(' Focus', '')} deadline`}
+      </p>
+    </div>
+  )
+}
+
+
+================================================================================
+FILE: components/client-list.tsx
+================================================================================
+'use client'
+
+import type {
+  ClientWithExperiences,
+  FocusTab,
+  ActiveTab,
+  ExperienceType,
+  DerivedStatus,
+} from '@/lib/types'
+import { ClientRow } from './client-row'
+
+interface ClientListProps {
+  clients: ClientWithExperiences[]
+  focusTab: FocusTab
+  activeTab: ActiveTab
+  now: Date
+  loading: boolean
+  updateClientLocal: (
+    clientId: string,
+    updater: (c: ClientWithExperiences) => ClientWithExperiences
+  ) => void
+  getExpDerivedStatus: (
+    client: ClientWithExperiences,
+    expType: ExperienceType
+  ) => DerivedStatus
+}
+
+export function ClientList({
+  clients,
+  focusTab,
+  activeTab,
+  now,
+  loading,
+  updateClientLocal,
+  getExpDerivedStatus,
+}: ClientListProps) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-muted-foreground">Loading clients...</p>
+      </div>
+    )
+  }
+
+  if (clients.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-muted-foreground">
+          {activeTab === 'archived'
+            ? 'No archived clients.'
+            : 'No clients found. Add your first client to get started.'}
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <h2 className="text-sm font-medium text-muted-foreground pb-3">
+        {activeTab === 'archived' ? (
+          <>
+            Archived Clients{' '}
+            <span className="text-xs font-normal">
+              Read-only by default &bull; Unarchive to edit
+            </span>
+          </>
+        ) : (
+          'Active Clients'
+        )}
+      </h2>
+      <div className="space-y-3">
+        {clients.map((client) => (
+          <ClientRow
+            key={client.id}
+            client={client}
+            focusTab={focusTab}
+            activeTab={activeTab}
+            now={now}
+            updateClientLocal={updateClientLocal}
+            getExpDerivedStatus={getExpDerivedStatus}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+
+================================================================================
+FILE: components/client-row.tsx
+================================================================================
+'use client'
+
+import { useState, useRef } from 'react'
+import type {
+  ClientWithExperiences,
+  FocusTab,
+  ActiveTab,
+  ExperienceType,
+  DerivedStatus,
+} from '@/lib/types'
+import { EXPERIENCE_TYPES, EXPERIENCE_LABELS } from '@/lib/types'
+import {
+  getDueAt,
+  getDueAtEffective,
+  getNowEffective,
+  formatDurationCompact,
+  getDerivedStatus,
+} from '@/lib/deadlines'
+import { updateClient } from '@/lib/queries'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { MoreHorizontal, Pause, Play, Archive, ArchiveRestore } from 'lucide-react'
+import { ExperienceCard } from './experience-card'
+import { MiniIndicator } from './mini-indicator'
+
+interface ClientRowProps {
+  client: ClientWithExperiences
+  focusTab: FocusTab
+  activeTab: ActiveTab
+  now: Date
+  updateClientLocal: (
+    clientId: string,
+    updater: (c: ClientWithExperiences) => ClientWithExperiences
+  ) => void
+  getExpDerivedStatus: (
+    client: ClientWithExperiences,
+    expType: ExperienceType
+  ) => DerivedStatus
+}
+
+export function ClientRow({
+  client,
+  focusTab,
+  activeTab,
+  now,
+  updateClientLocal,
+  getExpDerivedStatus,
+}: ClientRowProps) {
+  const [editingName, setEditingName] = useState(false)
+  const [editingDate, setEditingDate] = useState(false)
+  const [nameValue, setNameValue] = useState(client.name)
+  const [dateValue, setDateValue] = useState(client.signed_on_date)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const dateRef = useRef<HTMLInputElement>(null)
+
+  const isArchived = activeTab === 'archived'
+  const isFocusMode = focusTab !== 'overview'
+  const focusedType = isFocusMode ? (focusTab as ExperienceType) : null
+  const otherTypes = focusedType
+    ? EXPERIENCE_TYPES.filter((t) => t !== focusedType)
+    : []
+
+  async function saveName() {
+    setEditingName(false)
+    if (nameValue.trim() && nameValue.trim() !== client.name) {
+      updateClientLocal(client.id, (c) => ({ ...c, name: nameValue.trim() }))
+      await updateClient(client.id, { name: nameValue.trim() })
+    } else {
+      setNameValue(client.name)
+    }
+  }
+
+  async function saveDate() {
+    setEditingDate(false)
+    if (dateValue && dateValue !== client.signed_on_date) {
+      updateClientLocal(client.id, (c) => ({ ...c, signed_on_date: dateValue }))
+      await updateClient(client.id, { signed_on_date: dateValue })
+    } else {
+      setDateValue(client.signed_on_date)
+    }
+  }
+
+  async function handlePauseResume() {
+    if (client.paused) {
+      // Resume
+      const pauseStart = new Date(client.pause_started_at!).getTime()
+      const pausedSeconds = Math.floor((Date.now() - pauseStart) / 1000)
+      const newTotal = client.paused_total_seconds + pausedSeconds
+
+      updateClientLocal(client.id, (c) => ({
+        ...c,
+        paused: false,
+        pause_started_at: null,
+        paused_total_seconds: newTotal,
+      }))
+      await updateClient(client.id, {
+        paused: false,
+        pause_started_at: null,
+        paused_total_seconds: newTotal,
+      })
+    } else {
+      // Pause
+      const nowStr = new Date().toISOString()
+      updateClientLocal(client.id, (c) => ({
+        ...c,
+        paused: true,
+        pause_started_at: nowStr,
+      }))
+      await updateClient(client.id, {
+        paused: true,
+        pause_started_at: nowStr,
+      })
+    }
+  }
+
+  async function handleArchiveToggle() {
+    const newArchived = !client.is_archived
+    updateClientLocal(client.id, (c) => ({
+      ...c,
+      is_archived: newArchived,
+      archived_at: newArchived ? new Date().toISOString() : null,
+    }))
+    await updateClient(client.id, {
+      is_archived: newArchived,
+      archived_at: newArchived ? new Date().toISOString() : null,
+    })
+  }
+
+  function formatSignedDate(dateStr: string): string {
+    const [y, m, d] = dateStr.split('-')
+    return `${m}/${d}/${y}`
+  }
+
+  return (
+    <div
+      className={`flex items-stretch rounded-lg border border-border bg-card/50 overflow-hidden ${
+        client.paused ? 'opacity-70' : ''
+      }`}
+    >
+      {/* Left column: client info */}
+      <div className="flex flex-col justify-center p-4 min-w-[180px] max-w-[220px] border-r border-border">
+        {/* Name */}
+        {editingName && !isArchived ? (
+          <Input
+            ref={nameRef}
+            value={nameValue}
+            onChange={(e) => setNameValue(e.target.value)}
+            onBlur={saveName}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveName()
+              if (e.key === 'Escape') {
+                setNameValue(client.name)
+                setEditingName(false)
+              }
+            }}
+            className="h-7 text-sm font-bold p-1"
+            autoFocus
+          />
+        ) : (
+          <button
+            onClick={() => {
+              if (!isArchived) {
+                setEditingName(true)
+                setTimeout(() => nameRef.current?.focus(), 0)
+              }
+            }}
+            className="text-sm font-bold text-left truncate hover:text-primary transition-colors"
+          >
+            {client.name}
+          </button>
+        )}
+
+        {/* Signed-on date */}
+        {editingDate && !isArchived ? (
+          <Input
+            ref={dateRef}
+            type="date"
+            value={dateValue}
+            onChange={(e) => setDateValue(e.target.value)}
+            onBlur={saveDate}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveDate()
+              if (e.key === 'Escape') {
+                setDateValue(client.signed_on_date)
+                setEditingDate(false)
+              }
+            }}
+            className="h-6 text-xs p-1 mt-1"
+            autoFocus
+          />
+        ) : (
+          <button
+            onClick={() => {
+              if (!isArchived) {
+                setEditingDate(true)
+                setTimeout(() => dateRef.current?.focus(), 0)
+              }
+            }}
+            className="text-xs text-muted-foreground text-left mt-0.5 hover:text-foreground transition-colors"
+          >
+            Signed on: {formatSignedDate(client.signed_on_date)}
+          </button>
+        )}
+
+        {!isArchived && (
+          <p className="text-[10px] text-muted-foreground/60 mt-1">
+            Click name/date to edit
+          </p>
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 mt-2">
+          {!isArchived && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={handlePauseResume}>
+                  {client.paused ? (
+                    <>
+                      <Play className="h-3.5 w-3.5 mr-2" />
+                      Resume Timers
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="h-3.5 w-3.5 mr-2" />
+                      Pause Timers
+                    </>
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleArchiveToggle}>
+                  <Archive className="h-3.5 w-3.5 mr-2" />
+                  Archive
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {isArchived && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs h-7"
+              onClick={handleArchiveToggle}
+            >
+              <ArchiveRestore className="h-3.5 w-3.5 mr-1.5" />
+              Unarchive
+            </Button>
+          )}
+
+          {client.paused && !isArchived && (
+            <span className="text-[10px] text-amber-500 font-medium">Paused</span>
+          )}
+        </div>
+      </div>
+
+      {/* Right column: experience cards */}
+      <div className="flex-1 flex items-stretch">
+        {isFocusMode && focusedType ? (
+          <>
+            {/* Focus mode: one large card */}
+            <div className="flex-1">
+              {client.client_experiences
+                .filter((e) => e.experience_type === focusedType)
+                .map((exp) => (
+                  <ExperienceCard
+                    key={exp.id}
+                    client={client}
+                    experience={exp}
+                    now={now}
+                    variant="focus"
+                    isArchived={isArchived}
+                    updateClientLocal={updateClientLocal}
+                  />
+                ))}
+            </div>
+            {/* Mini indicators for other milestones */}
+            <div className="flex flex-col justify-center gap-2 p-3 border-l border-border min-w-[140px]">
+              {otherTypes.map((expType) => {
+                const exp = client.client_experiences.find(
+                  (e) => e.experience_type === expType
+                )
+                if (!exp) return null
+                const dueAt = getDueAt(client.signed_on_date, expType)
+                const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+                const nowEff = getNowEffective(client, now)
+                const secondsRemaining = (dueAtEff.getTime() - nowEff.getTime()) / 1000
+                const derivedStatus = getDerivedStatus({
+                  status: exp.status,
+                  completed_at: exp.completed_at,
+                  dueAt: dueAtEff,
+                  now: nowEff,
+                })
+
+                return (
+                  <MiniIndicator
+                    key={exp.id}
+                    label={EXPERIENCE_LABELS[expType]}
+                    timeRemaining={formatDurationCompact(secondsRemaining)}
+                    derivedStatus={derivedStatus}
+                  />
+                )
+              })}
+            </div>
+          </>
+        ) : (
+          /* Overview mode: 3 cards side by side */
+          EXPERIENCE_TYPES.map((expType) => {
+            const exp = client.client_experiences.find(
+              (e) => e.experience_type === expType
+            )
+            if (!exp) return null
+            return (
+              <ExperienceCard
+                key={exp.id}
+                client={client}
+                experience={exp}
+                now={now}
+                variant="overview"
+                isArchived={isArchived}
+                updateClientLocal={updateClientLocal}
+              />
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+================================================================================
+FILE: components/experience-card.tsx
+================================================================================
+'use client'
+
+import { useState, useMemo } from 'react'
+import type {
+  ClientWithExperiences,
+  ClientExperience,
+  ExperienceStatus,
+  DerivedStatus,
+} from '@/lib/types'
+import { EXPERIENCE_LABELS } from '@/lib/types'
+import {
+  getDueAt,
+  getDueAtEffective,
+  getNowEffective,
+  getDerivedStatus,
+  getUrgency,
+  formatDuration,
+  formatDurationParts,
+  formatDueTime,
+  formatDueTimeFull,
+  type DurationPart,
+} from '@/lib/deadlines'
+import { updateExperience } from '@/lib/queries'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import {
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Clock,
+  FileText,
+} from 'lucide-react'
+import { NotesModal } from './notes-modal'
+
+interface ExperienceCardProps {
+  client: ClientWithExperiences
+  experience: ClientExperience
+  now: Date
+  variant: 'overview' | 'focus'
+  isArchived: boolean
+  updateClientLocal: (
+    clientId: string,
+    updater: (c: ClientWithExperiences) => ClientWithExperiences
+  ) => void
+}
+
+export function ExperienceCard({
+  client,
+  experience,
+  now,
+  variant,
+  isArchived,
+  updateClientLocal,
+}: ExperienceCardProps) {
+  const [notesOpen, setNotesOpen] = useState(false)
+
+  const expType = experience.experience_type
+  const label = EXPERIENCE_LABELS[expType]
+
+  // Compute deadline and status
+  const dueAt = useMemo(
+    () => getDueAt(client.signed_on_date, expType),
+    [client.signed_on_date, expType]
+  )
+  const dueAtEffective = useMemo(
+    () => getDueAtEffective(dueAt, client.paused_total_seconds),
+    [dueAt, client.paused_total_seconds]
+  )
+  const nowEffective = getNowEffective(client, now)
+  const secondsRemaining = (dueAtEffective.getTime() - nowEffective.getTime()) / 1000
+
+  const derivedStatus: DerivedStatus = getDerivedStatus({
+    status: experience.status,
+    completed_at: experience.completed_at,
+    dueAt: dueAtEffective,
+    now: nowEffective,
+  })
+
+  const urgency =
+    derivedStatus === 'pending'
+      ? getUrgency(expType, secondsRemaining)
+      : 'normal'
+
+  // Status display
+  const statusDisplay = getStatusDisplay(derivedStatus, secondsRemaining, experience)
+
+  // Countdown display
+  const countdownDisplay = getCountdownDisplay(
+    derivedStatus,
+    secondsRemaining,
+    experience,
+    dueAtEffective,
+    variant
+  )
+
+  // Urgency border color
+  const borderClass = getBorderClass(urgency, derivedStatus)
+
+  async function handleStatusChange(value: string) {
+    const newStatus = value as ExperienceStatus
+    const updates: Record<string, unknown> = { status: newStatus }
+
+    if (newStatus === 'yes') {
+      updates.completed_at = new Date().toISOString()
+    } else {
+      updates.completed_at = null
+    }
+
+    // Optimistic update
+    updateClientLocal(client.id, (c) => ({
+      ...c,
+      client_experiences: c.client_experiences.map((e) =>
+        e.id === experience.id
+          ? {
+              ...e,
+              status: newStatus,
+              completed_at: newStatus === 'yes' ? new Date().toISOString() : null,
+            }
+          : e
+      ),
+    }))
+
+    await updateExperience(experience.id, updates)
+  }
+
+  if (variant === 'focus') {
+    return (
+      <>
+        <div className={`flex-1 p-4 border-l border-border ${borderClass}`}>
+          {/* Title spanning full width — largest text */}
+          <h3 className="text-xl font-semibold mb-2 text-center">{label}</h3>
+
+          {/* Two-column body with vertical divider */}
+          <div className="flex">
+            {/* Left column: countdown + due date + status label */}
+            <div className="flex-1 min-w-0 pr-3">
+              <div className="mb-2">
+                <p className={`text-2xl font-bold ${countdownDisplay.isNegative ? 'text-red-500' : ''}`}>
+                  {countdownDisplay.primary}
+                </p>
+                <p className="text-base text-muted-foreground">
+                  {formatDueTimeFull(dueAtEffective)}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {statusDisplay.icon}
+                <span className={`text-base font-medium ${statusDisplay.colorClass}`}>
+                  {statusDisplay.label}
+                </span>
+              </div>
+            </div>
+
+            {/* Vertical divider */}
+            <div className="w-px bg-border self-stretch" />
+
+            {/* Right column: status dropdown + notes icon */}
+            <div className="flex flex-col items-center justify-between pl-3 min-w-[120px]">
+              {!isArchived && (
+                <Select
+                  value={experience.status}
+                  onValueChange={handleStatusChange}
+                >
+                  <SelectTrigger className="w-[130px] h-9 text-base">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending" className="text-base">Achieved?</SelectItem>
+                    <SelectItem value="yes" className="text-base">Yes</SelectItem>
+                    <SelectItem value="no" className="text-base">No</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-16 w-16 mb-3"
+                onClick={() => setNotesOpen(true)}
+              >
+                <FileText className="size-12" strokeWidth={0.75} />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <NotesModal
+          open={notesOpen}
+          onOpenChange={setNotesOpen}
+          client={client}
+          experience={experience}
+          updateClientLocal={updateClientLocal}
+        />
+      </>
+    )
+  }
+
+  // Overview variant
+  return (
+    <>
+      <div className={`flex-1 p-3 border-l border-border ${borderClass}`}>
+        {/* Title spanning full width — largest text */}
+        <h3 className="text-lg font-semibold mb-1.5 text-center">{label}</h3>
+
+        {isArchived ? (
+          <div className="flex items-center gap-1.5 mt-1">
+            {statusDisplay.icon}
+            <span className={`text-base ${statusDisplay.colorClass}`}>
+              {statusDisplay.label}
+            </span>
+          </div>
+        ) : (
+          /* Two-column body with vertical divider */
+          <div className="flex">
+            {/* Left column: countdown + due date + status label */}
+            <div className="flex-1 min-w-0 pr-2">
+              {countdownDisplay.parts ? (
+                <div className="space-y-0 leading-tight mb-1">
+                  <p>
+                    <span className={`text-base font-semibold ${countdownDisplay.isNegative ? 'text-red-500' : ''}`}>{countdownDisplay.parts.days.number}</span>
+                    {' '}
+                    <span className={`text-sm ${countdownDisplay.isNegative ? 'text-red-400' : 'text-muted-foreground'}`}>{countdownDisplay.parts.days.unit}</span>
+                  </p>
+                  <p>
+                    <span className={`text-base font-semibold ${countdownDisplay.isNegative ? 'text-red-500' : ''}`}>{countdownDisplay.parts.hours.number}</span>
+                    {' '}
+                    <span className={`text-sm ${countdownDisplay.isNegative ? 'text-red-400' : 'text-muted-foreground'}`}>{countdownDisplay.parts.hours.unit}</span>
+                  </p>
+                  <p>
+                    <span className={`text-base font-semibold ${countdownDisplay.isNegative ? 'text-red-500' : ''}`}>{countdownDisplay.parts.mins.number}</span>
+                    <span className={`text-sm ${countdownDisplay.isNegative ? 'text-red-400' : 'text-muted-foreground'}`}>{countdownDisplay.parts.mins.unit}</span>
+                    {' '}
+                    <span className={`text-base font-semibold ${countdownDisplay.isNegative ? 'text-red-500' : ''}`}>{countdownDisplay.parts.secs.number}</span>
+                    <span className={`text-sm ${countdownDisplay.isNegative ? 'text-red-400' : 'text-muted-foreground'}`}>{countdownDisplay.parts.secs.unit}</span>
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-0 leading-tight mb-1">
+                  {countdownDisplay.fallbackLines.map((line, i) => (
+                    <p key={i} className="text-base font-medium">{line}</p>
+                  ))}
+                </div>
+              )}
+              <p className="text-sm text-muted-foreground mb-1.5">
+                {formatDueTime(dueAtEffective)}
+              </p>
+              <div className="flex items-center gap-1">
+                {statusDisplay.icon}
+                <span className={`text-sm ${statusDisplay.colorClass}`}>
+                  {statusDisplay.label}
+                </span>
+              </div>
+            </div>
+
+            {/* Vertical divider */}
+            <div className="w-px bg-border self-stretch" />
+
+            {/* Right column: status dropdown + notes icon */}
+            <div className="flex flex-col items-center justify-between pl-4 min-w-[100px]">
+              <Select
+                value={experience.status}
+                onValueChange={handleStatusChange}
+              >
+                <SelectTrigger className="w-[120px] h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending" className="text-sm">Achieved?</SelectItem>
+                  <SelectItem value="yes" className="text-sm">Yes</SelectItem>
+                  <SelectItem value="no" className="text-sm">No</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-14 w-14 mb-2"
+                onClick={() => setNotesOpen(true)}
+              >
+                <FileText className="size-10" strokeWidth={0.75} />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <NotesModal
+        open={notesOpen}
+        onOpenChange={setNotesOpen}
+        client={client}
+        experience={experience}
+        updateClientLocal={updateClientLocal}
+      />
+    </>
+  )
+}
+
+function getStatusDisplay(
+  derivedStatus: DerivedStatus,
+  secondsRemaining: number,
+  experience: ClientExperience
+): { icon: React.ReactNode; label: string; colorClass: string } {
+  switch (derivedStatus) {
+    case 'done': {
+      const earlyBy = secondsRemaining > 0 ? formatDuration(secondsRemaining) : ''
+      return {
+        icon: <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />,
+        label: earlyBy ? `Done (early by ${earlyBy})` : 'Done (on time)',
+        colorClass: 'text-green-500',
+      }
+    }
+    case 'done_late': {
+      return {
+        icon: <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />,
+        label: 'Done late',
+        colorClass: 'text-amber-500',
+      }
+    }
+    case 'failed': {
+      if (experience.status === 'no') {
+        return {
+          icon: <XCircle className="h-3.5 w-3.5 text-red-500" />,
+          label: 'Failed',
+          colorClass: 'text-red-500',
+        }
+      }
+      // Past due but still pending
+      return {
+        icon: <XCircle className="h-3.5 w-3.5 text-red-500" />,
+        label: 'Past due',
+        colorClass: 'text-red-500',
+      }
+    }
+    case 'pending':
+    default:
+      return {
+        icon: <Clock className="h-3.5 w-3.5 text-muted-foreground" />,
+        label: 'Pending',
+        colorClass: 'text-muted-foreground',
+      }
+  }
+}
+
+interface CountdownDisplay {
+  /** Single-line summary for focus mode */
+  primary: string
+  /** Structured parts for split-size rendering (null when text-only) */
+  parts: { days: DurationPart; hours: DurationPart; mins: DurationPart; secs: DurationPart } | null
+  /** Fallback plain text lines for done/failed states */
+  fallbackLines: string[]
+  /** Whether the countdown has gone negative (past due) */
+  isNegative: boolean
+}
+
+function getCountdownDisplay(
+  derivedStatus: DerivedStatus,
+  secondsRemaining: number,
+  experience: ClientExperience,
+  dueAtEffective: Date,
+  variant: 'overview' | 'focus'
+): CountdownDisplay {
+  if (derivedStatus === 'done' || derivedStatus === 'done_late') {
+    if (experience.completed_at) {
+      const completedDate = new Date(experience.completed_at)
+      const diff = (dueAtEffective.getTime() - completedDate.getTime()) / 1000
+      const prefix = diff >= 0 ? 'Early by' : 'Late by'
+      const duration = formatDuration(Math.abs(diff))
+      return {
+        primary: `${prefix} ${duration}`,
+        parts: null,
+        fallbackLines: [prefix, duration],
+        isNegative: false,
+      }
+    }
+    return { primary: 'Completed', parts: null, fallbackLines: ['Completed'], isNegative: false }
+  }
+
+  if (derivedStatus === 'failed' && experience.status === 'pending') {
+    const overdue = Math.abs(secondsRemaining)
+    const parts = formatDurationParts(overdue)
+    // Negate the numbers to indicate past due
+    const negativeParts = {
+      days: { number: `-${parts.days.number}`, unit: parts.days.unit },
+      hours: { number: `-${parts.hours.number}`, unit: parts.hours.unit },
+      mins: { number: `-${parts.mins.number}`, unit: parts.mins.unit },
+      secs: { number: `-${parts.secs.number}`, unit: parts.secs.unit },
+    }
+    return {
+      primary: `Past due by ${formatDuration(overdue)}`,
+      parts: negativeParts,
+      fallbackLines: [],
+      isNegative: true,
+    }
+  }
+
+  if (derivedStatus === 'failed') {
+    return { primary: 'Failed', parts: null, fallbackLines: ['Failed'], isNegative: false }
+  }
+
+  // Pending with time remaining
+  const parts = formatDurationParts(secondsRemaining)
+  return {
+    primary: `Due in ${formatDuration(secondsRemaining)}`,
+    parts,
+    fallbackLines: [],
+    isNegative: false,
+  }
+}
+
+function getBorderClass(
+  urgency: 'normal' | 'yellow' | 'red',
+  derivedStatus: DerivedStatus
+): string {
+  if (derivedStatus === 'done') return 'border-l-2 border-l-green-500/30'
+  if (derivedStatus === 'done_late') return 'border-l-2 border-l-amber-500/30'
+  if (derivedStatus === 'failed') return 'border-l-2 border-l-red-500/50 bg-red-500/5'
+
+  switch (urgency) {
+    case 'red':
+      return 'border-l-2 border-l-red-500/50 bg-red-500/5'
+    case 'yellow':
+      return 'border-l-2 border-l-amber-500/40 bg-amber-500/5'
+    default:
+      return ''
+  }
+}
+
+
+================================================================================
+FILE: components/mini-indicator.tsx
+================================================================================
+'use client'
+
+import type { DerivedStatus } from '@/lib/types'
+import { CheckCircle2, XCircle, AlertTriangle, Clock } from 'lucide-react'
+
+interface MiniIndicatorProps {
+  label: string
+  timeRemaining: string
+  derivedStatus: DerivedStatus
+}
+
+export function MiniIndicator({
+  label,
+  timeRemaining,
+  derivedStatus,
+}: MiniIndicatorProps) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="text-muted-foreground font-medium">
+        {label}: {timeRemaining}
+      </span>
+      <StatusCircle status={derivedStatus} />
+    </div>
+  )
+}
+
+function StatusCircle({ status }: { status: DerivedStatus }) {
+  switch (status) {
+    case 'done':
+      return <CheckCircle2 className="h-4 w-4 text-green-500" />
+    case 'done_late':
+      return <AlertTriangle className="h-4 w-4 text-amber-500" />
+    case 'failed':
+      return <XCircle className="h-4 w-4 text-red-500" />
+    case 'pending':
+    default:
+      return <Clock className="h-4 w-4 text-muted-foreground" />
+  }
+}
+
+
+================================================================================
+FILE: components/notes-modal.tsx
+================================================================================
+'use client'
+
+import { useState, useEffect, useRef, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { ClientWithExperiences, ClientExperience } from '@/lib/types'
+import { EXPERIENCE_LABELS } from '@/lib/types'
+import { updateExperience } from '@/lib/queries'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import { Copy, X, Pencil } from 'lucide-react'
+
+interface NotesModalProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  client: ClientWithExperiences
+  experience: ClientExperience
+  updateClientLocal: (
+    clientId: string,
+    updater: (c: ClientWithExperiences) => ClientWithExperiences
+  ) => void
+}
+
+export function NotesModal({
+  open,
+  onOpenChange,
+  client,
+  experience,
+  updateClientLocal,
+}: NotesModalProps) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [content, setContent] = useState(experience.notes || '')
+  const [saveStatus, setSaveStatus] = useState<string>('')
+  const [editingCompletedAt, setEditingCompletedAt] = useState(false)
+  const [completedAtValue, setCompletedAtValue] = useState('')
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const label = EXPERIENCE_LABELS[experience.experience_type]
+
+  // Sync content when modal opens or experience changes
+  useEffect(() => {
+    setContent(experience.notes || '')
+    setIsEditing(false)
+    setSaveStatus('')
+  }, [experience.notes, open])
+
+  // Sync completed_at editing value
+  useEffect(() => {
+    if (experience.completed_at) {
+      const dt = new Date(experience.completed_at)
+      const local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000)
+        .toISOString()
+        .slice(0, 16)
+      setCompletedAtValue(local)
+    }
+  }, [experience.completed_at])
+
+  const saveNotes = useCallback(
+    async (text: string) => {
+      updateClientLocal(client.id, (c) => ({
+        ...c,
+        client_experiences: c.client_experiences.map((e) =>
+          e.id === experience.id ? { ...e, notes: text } : e
+        ),
+      }))
+      await updateExperience(experience.id, { notes: text })
+      setSaveStatus('Saved \u2022 just now')
+    },
+    [client.id, experience.id, updateClientLocal]
+  )
+
+  function handleContentChange(newContent: string) {
+    setContent(newContent)
+    setSaveStatus('Saving...')
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current)
+    }
+
+    debounceRef.current = setTimeout(() => {
+      saveNotes(newContent)
+    }, 500)
+  }
+
+  function handleCopy() {
+    navigator.clipboard.writeText(content)
+    setSaveStatus('Copied to clipboard!')
+    setTimeout(() => setSaveStatus(''), 2000)
+  }
+
+  async function handleCompletedAtSave() {
+    if (!completedAtValue) return
+    const newCompletedAt = new Date(completedAtValue).toISOString()
+
+    updateClientLocal(client.id, (c) => ({
+      ...c,
+      client_experiences: c.client_experiences.map((e) =>
+        e.id === experience.id ? { ...e, completed_at: newCompletedAt } : e
+      ),
+    }))
+    await updateExperience(experience.id, { completed_at: newCompletedAt })
+    setEditingCompletedAt(false)
+    setSaveStatus('Completion time updated')
+  }
+
+  function formatCompletedAt(dateStr: string): string {
+    const d = new Date(dateStr)
+    return d.toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col gap-0 p-0">
+        {/* Header */}
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-border">
+          <div className="flex items-center justify-between">
+            <DialogTitle className="text-base font-semibold">
+              Notes &mdash; {client.name} &bull; {label}
+            </DialogTitle>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-7"
+                onClick={handleCopy}
+              >
+                <Copy className="h-3.5 w-3.5 mr-1" />
+                Copy
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => onOpenChange(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </DialogHeader>
+
+        {/* Helper text */}
+        <p className="text-xs text-muted-foreground px-5 py-2 border-b border-border">
+          Click inside the text to edit (Markdown supported). Changes save
+          automatically.
+        </p>
+
+        {/* Content area */}
+        <div
+          className="flex-1 overflow-y-auto px-5 py-4 min-h-[250px] cursor-text"
+          onClick={() => {
+            if (!isEditing) {
+              setIsEditing(true)
+              setTimeout(() => textareaRef.current?.focus(), 0)
+            }
+          }}
+        >
+          {isEditing ? (
+            <Textarea
+              ref={textareaRef}
+              value={content}
+              onChange={(e) => handleContentChange(e.target.value)}
+              onBlur={() => {
+                if (!content.trim()) setIsEditing(false)
+              }}
+              className="min-h-[200px] resize-none border-0 p-0 focus-visible:ring-0 text-sm leading-relaxed bg-transparent"
+              placeholder="Start writing notes..."
+              autoFocus
+            />
+          ) : (
+            <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed min-h-[200px]">
+              {content ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {content}
+                </ReactMarkdown>
+              ) : (
+                <p className="text-muted-foreground italic">
+                  No notes yet. Click to add notes...
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Completed at editor (only for status = yes) */}
+        {experience.status === 'yes' && experience.completed_at && (
+          <div className="px-5 py-2 border-t border-border">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground">Completed:</span>
+              {editingCompletedAt ? (
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="datetime-local"
+                    value={completedAtValue}
+                    onChange={(e) => setCompletedAtValue(e.target.value)}
+                    className="h-6 text-xs w-auto"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs h-6"
+                    onClick={handleCompletedAtSave}
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs h-6"
+                    onClick={() => setEditingCompletedAt(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setEditingCompletedAt(true)}
+                  className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {formatCompletedAt(experience.completed_at)}
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="px-5 py-2 border-t border-border">
+          <p className="text-xs text-muted-foreground">
+            {saveStatus || '\u00A0'}
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+
+================================================================================
+FILE: components/add-client-dialog.tsx
+================================================================================
+'use client'
+
+import { useState } from 'react'
+import { format } from 'date-fns'
+import type { ClientWithExperiences } from '@/lib/types'
+import { createClientWithExperiences } from '@/lib/queries'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+
+interface AddClientDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onAddClient: (client: ClientWithExperiences) => void
+}
+
+export function AddClientDialog({
+  open,
+  onOpenChange,
+  onAddClient,
+}: AddClientDialogProps) {
+  const [name, setName] = useState('')
+  const [signedOnDate, setSignedOnDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name.trim() || !signedOnDate) return
+
+    setLoading(true)
+    const client = await createClientWithExperiences(name.trim(), signedOnDate)
+    setLoading(false)
+
+    if (client) {
+      onAddClient(client)
+      setName('')
+      setSignedOnDate(format(new Date(), 'yyyy-MM-dd'))
+      onOpenChange(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle>Add New Client</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="client-name">Client Name</Label>
+            <Input
+              id="client-name"
+              placeholder="e.g. John Smith"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="signed-on-date">Signed-on Date</Label>
+            <Input
+              id="signed-on-date"
+              type="date"
+              value={signedOnDate}
+              onChange={(e) => setSignedOnDate(e.target.value)}
+              required
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={loading || !name.trim()}>
+              {loading ? 'Adding...' : 'Add Client'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+
+================================================================================
+FILE: components/theme-provider.tsx
+================================================================================
+'use client'
+
+import * as React from 'react'
+import { ThemeProvider as NextThemesProvider } from 'next-themes'
+
+export function ThemeProvider({
+  children,
+  ...props
+}: React.ComponentProps<typeof NextThemesProvider>) {
+  return <NextThemesProvider {...props}>{children}</NextThemesProvider>
+}
+
+
+================================================================================
+FILE: components/theme-toggle.tsx
+================================================================================
+'use client'
+
+import { Moon, Sun } from 'lucide-react'
+import { useTheme } from 'next-themes'
+import { Button } from '@/components/ui/button'
+
+export function ThemeToggle() {
+  const { theme, setTheme } = useTheme()
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+      className="h-9 w-9"
+    >
+      <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+      <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+      <span className="sr-only">Toggle theme</span>
+    </Button>
+  )
+}
+
+
+================================================================================
+FILE: components/ui/badge.tsx
+================================================================================
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+import { Slot } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+const badgeVariants = cva(
+  "inline-flex items-center justify-center rounded-full border border-transparent px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a&]:hover:bg-primary/90",
+        secondary:
+          "bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
+        destructive:
+          "bg-destructive text-white [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+        outline:
+          "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
+        ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 [a&]:hover:underline",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+)
+
+function Badge({
+  className,
+  variant = "default",
+  asChild = false,
+  ...props
+}: React.ComponentProps<"span"> &
+  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+  const Comp = asChild ? Slot.Root : "span"
+
+  return (
+    <Comp
+      data-slot="badge"
+      data-variant={variant}
+      className={cn(badgeVariants({ variant }), className)}
+      {...props}
+    />
+  )
+}
+
+export { Badge, badgeVariants }
+
+
+================================================================================
+FILE: components/ui/button.tsx
+================================================================================
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+import { Slot } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+        outline:
+          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost:
+          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-9 px-4 py-2 has-[>svg]:px-3",
+        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
+        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+        icon: "size-9",
+        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm": "size-8",
+        "icon-lg": "size-10",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  asChild = false,
+  ...props
+}: React.ComponentProps<"button"> &
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean
+  }) {
+  const Comp = asChild ? Slot.Root : "button"
+
+  return (
+    <Comp
+      data-slot="button"
+      data-variant={variant}
+      data-size={size}
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  )
+}
+
+export { Button, buttonVariants }
+
+
+================================================================================
+FILE: components/ui/calendar.tsx
+================================================================================
+"use client"
+
+import * as React from "react"
+import {
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+} from "lucide-react"
+import {
+  DayPicker,
+  getDefaultClassNames,
+  type DayButton,
+} from "react-day-picker"
+
+import { cn } from "@/lib/utils"
+import { Button, buttonVariants } from "@/components/ui/button"
+
+function Calendar({
+  className,
+  classNames,
+  showOutsideDays = true,
+  captionLayout = "label",
+  buttonVariant = "ghost",
+  formatters,
+  components,
+  ...props
+}: React.ComponentProps<typeof DayPicker> & {
+  buttonVariant?: React.ComponentProps<typeof Button>["variant"]
+}) {
+  const defaultClassNames = getDefaultClassNames()
+
+  return (
+    <DayPicker
+      showOutsideDays={showOutsideDays}
+      className={cn(
+        "bg-background group/calendar p-3 [--cell-size:--spacing(8)] [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
+        String.raw`rtl:**:[.rdp-button\_next>svg]:rotate-180`,
+        String.raw`rtl:**:[.rdp-button\_previous>svg]:rotate-180`,
+        className
+      )}
+      captionLayout={captionLayout}
+      formatters={{
+        formatMonthDropdown: (date) =>
+          date.toLocaleString("default", { month: "short" }),
+        ...formatters,
+      }}
+      classNames={{
+        root: cn("w-fit", defaultClassNames.root),
+        months: cn(
+          "flex gap-4 flex-col md:flex-row relative",
+          defaultClassNames.months
+        ),
+        month: cn("flex flex-col w-full gap-4", defaultClassNames.month),
+        nav: cn(
+          "flex items-center gap-1 w-full absolute top-0 inset-x-0 justify-between",
+          defaultClassNames.nav
+        ),
+        button_previous: cn(
+          buttonVariants({ variant: buttonVariant }),
+          "size-(--cell-size) aria-disabled:opacity-50 p-0 select-none",
+          defaultClassNames.button_previous
+        ),
+        button_next: cn(
+          buttonVariants({ variant: buttonVariant }),
+          "size-(--cell-size) aria-disabled:opacity-50 p-0 select-none",
+          defaultClassNames.button_next
+        ),
+        month_caption: cn(
+          "flex items-center justify-center h-(--cell-size) w-full px-(--cell-size)",
+          defaultClassNames.month_caption
+        ),
+        dropdowns: cn(
+          "w-full flex items-center text-sm font-medium justify-center h-(--cell-size) gap-1.5",
+          defaultClassNames.dropdowns
+        ),
+        dropdown_root: cn(
+          "relative has-focus:border-ring border border-input shadow-xs has-focus:ring-ring/50 has-focus:ring-[3px] rounded-md",
+          defaultClassNames.dropdown_root
+        ),
+        dropdown: cn(
+          "absolute bg-popover inset-0 opacity-0",
+          defaultClassNames.dropdown
+        ),
+        caption_label: cn(
+          "select-none font-medium",
+          captionLayout === "label"
+            ? "text-sm"
+            : "rounded-md pl-2 pr-1 flex items-center gap-1 text-sm h-8 [&>svg]:text-muted-foreground [&>svg]:size-3.5",
+          defaultClassNames.caption_label
+        ),
+        table: "w-full border-collapse",
+        weekdays: cn("flex", defaultClassNames.weekdays),
+        weekday: cn(
+          "text-muted-foreground rounded-md flex-1 font-normal text-[0.8rem] select-none",
+          defaultClassNames.weekday
+        ),
+        week: cn("flex w-full mt-2", defaultClassNames.week),
+        week_number_header: cn(
+          "select-none w-(--cell-size)",
+          defaultClassNames.week_number_header
+        ),
+        week_number: cn(
+          "text-[0.8rem] select-none text-muted-foreground",
+          defaultClassNames.week_number
+        ),
+        day: cn(
+          "relative w-full h-full p-0 text-center [&:last-child[data-selected=true]_button]:rounded-r-md group/day aspect-square select-none",
+          props.showWeekNumber
+            ? "[&:nth-child(2)[data-selected=true]_button]:rounded-l-md"
+            : "[&:first-child[data-selected=true]_button]:rounded-l-md",
+          defaultClassNames.day
+        ),
+        range_start: cn(
+          "rounded-l-md bg-accent",
+          defaultClassNames.range_start
+        ),
+        range_middle: cn("rounded-none", defaultClassNames.range_middle),
+        range_end: cn("rounded-r-md bg-accent", defaultClassNames.range_end),
+        today: cn(
+          "bg-accent text-accent-foreground rounded-md data-[selected=true]:rounded-none",
+          defaultClassNames.today
+        ),
+        outside: cn(
+          "text-muted-foreground aria-selected:text-muted-foreground",
+          defaultClassNames.outside
+        ),
+        disabled: cn(
+          "text-muted-foreground opacity-50",
+          defaultClassNames.disabled
+        ),
+        hidden: cn("invisible", defaultClassNames.hidden),
+        ...classNames,
+      }}
+      components={{
+        Root: ({ className, rootRef, ...props }) => {
+          return (
+            <div
+              data-slot="calendar"
+              ref={rootRef}
+              className={cn(className)}
+              {...props}
+            />
+          )
+        },
+        Chevron: ({ className, orientation, ...props }) => {
+          if (orientation === "left") {
+            return (
+              <ChevronLeftIcon className={cn("size-4", className)} {...props} />
+            )
+          }
+
+          if (orientation === "right") {
+            return (
+              <ChevronRightIcon
+                className={cn("size-4", className)}
+                {...props}
+              />
+            )
+          }
+
+          return (
+            <ChevronDownIcon className={cn("size-4", className)} {...props} />
+          )
+        },
+        DayButton: CalendarDayButton,
+        WeekNumber: ({ children, ...props }) => {
+          return (
+            <td {...props}>
+              <div className="flex size-(--cell-size) items-center justify-center text-center">
+                {children}
+              </div>
+            </td>
+          )
+        },
+        ...components,
+      }}
+      {...props}
+    />
+  )
+}
+
+function CalendarDayButton({
+  className,
+  day,
+  modifiers,
+  ...props
+}: React.ComponentProps<typeof DayButton>) {
+  const defaultClassNames = getDefaultClassNames()
+
+  const ref = React.useRef<HTMLButtonElement>(null)
+  React.useEffect(() => {
+    if (modifiers.focused) ref.current?.focus()
+  }, [modifiers.focused])
+
+  return (
+    <Button
+      ref={ref}
+      variant="ghost"
+      size="icon"
+      data-day={day.date.toLocaleDateString()}
+      data-selected-single={
+        modifiers.selected &&
+        !modifiers.range_start &&
+        !modifiers.range_end &&
+        !modifiers.range_middle
+      }
+      data-range-start={modifiers.range_start}
+      data-range-end={modifiers.range_end}
+      data-range-middle={modifiers.range_middle}
+      className={cn(
+        "data-[selected-single=true]:bg-primary data-[selected-single=true]:text-primary-foreground data-[range-middle=true]:bg-accent data-[range-middle=true]:text-accent-foreground data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-ring/50 dark:hover:text-accent-foreground flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-1 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:ring-[3px] data-[range-end=true]:rounded-md data-[range-end=true]:rounded-r-md data-[range-middle=true]:rounded-none data-[range-start=true]:rounded-md data-[range-start=true]:rounded-l-md [&>span]:text-xs [&>span]:opacity-70",
+        defaultClassNames.day,
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Calendar, CalendarDayButton }
+
+
+================================================================================
+FILE: components/ui/card.tsx
+================================================================================
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Card({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card"
+      className={cn(
+        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-header"
+      className={cn(
+        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-title"
+      className={cn("leading-none font-semibold", className)}
+      {...props}
+    />
+  )
+}
+
+function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  )
+}
+
+function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-action"
+      className={cn(
+        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-content"
+      className={cn("px-6", className)}
+      {...props}
+    />
+  )
+}
+
+function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-footer"
+      className={cn("flex items-center px-6 [.border-t]:pt-6", className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  Card,
+  CardHeader,
+  CardFooter,
+  CardTitle,
+  CardAction,
+  CardDescription,
+  CardContent,
+}
+
+
+================================================================================
+FILE: components/ui/dialog.tsx
+================================================================================
+"use client"
+
+import * as React from "react"
+import { XIcon } from "lucide-react"
+import { Dialog as DialogPrimitive } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+
+function Dialog({
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Root>) {
+  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+}
+
+function DialogTrigger({
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
+  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
+}
+
+function DialogPortal({
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Portal>) {
+  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
+}
+
+function DialogClose({
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Close>) {
+  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
+}
+
+function DialogOverlay({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+  return (
+    <DialogPrimitive.Overlay
+      data-slot="dialog-overlay"
+      className={cn(
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DialogContent({
+  className,
+  children,
+  showCloseButton = true,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+  showCloseButton?: boolean
+}) {
+  return (
+    <DialogPortal data-slot="dialog-portal">
+      <DialogOverlay />
+      <DialogPrimitive.Content
+        data-slot="dialog-content"
+        className={cn(
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg",
+          className
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <DialogPrimitive.Close
+            data-slot="dialog-close"
+            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+          >
+            <XIcon />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  )
+}
+
+function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-header"
+      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      {...props}
+    />
+  )
+}
+
+function DialogFooter({
+  className,
+  showCloseButton = false,
+  children,
+  ...props
+}: React.ComponentProps<"div"> & {
+  showCloseButton?: boolean
+}) {
+  return (
+    <div
+      data-slot="dialog-footer"
+      className={cn(
+        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      {showCloseButton && (
+        <DialogPrimitive.Close asChild>
+          <Button variant="outline">Close</Button>
+        </DialogPrimitive.Close>
+      )}
+    </div>
+  )
+}
+
+function DialogTitle({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Title>) {
+  return (
+    <DialogPrimitive.Title
+      data-slot="dialog-title"
+      className={cn("text-lg leading-none font-semibold", className)}
+      {...props}
+    />
+  )
+}
+
+function DialogDescription({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Description>) {
+  return (
+    <DialogPrimitive.Description
+      data-slot="dialog-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+  DialogTrigger,
+}
+
+
+================================================================================
+FILE: components/ui/dropdown-menu.tsx
+================================================================================
+"use client"
+
+import * as React from "react"
+import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
+import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+function DropdownMenu({
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
+  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+}
+
+function DropdownMenuPortal({
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
+  return (
+    <DropdownMenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
+  )
+}
+
+function DropdownMenuTrigger({
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
+  return (
+    <DropdownMenuPrimitive.Trigger
+      data-slot="dropdown-menu-trigger"
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuContent({
+  className,
+  sideOffset = 4,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  return (
+    <DropdownMenuPrimitive.Portal>
+      <DropdownMenuPrimitive.Content
+        data-slot="dropdown-menu-content"
+        sideOffset={sideOffset}
+        className={cn(
+          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md",
+          className
+        )}
+        {...props}
+      />
+    </DropdownMenuPrimitive.Portal>
+  )
+}
+
+function DropdownMenuGroup({
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
+  return (
+    <DropdownMenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
+  )
+}
+
+function DropdownMenuItem({
+  className,
+  inset,
+  variant = "default",
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Item> & {
+  inset?: boolean
+  variant?: "default" | "destructive"
+}) {
+  return (
+    <DropdownMenuPrimitive.Item
+      data-slot="dropdown-menu-item"
+      data-inset={inset}
+      data-variant={variant}
+      className={cn(
+        "focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuCheckboxItem({
+  className,
+  children,
+  checked,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
+  return (
+    <DropdownMenuPrimitive.CheckboxItem
+      data-slot="dropdown-menu-checkbox-item"
+      className={cn(
+        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      checked={checked}
+      {...props}
+    >
+      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+        <DropdownMenuPrimitive.ItemIndicator>
+          <CheckIcon className="size-4" />
+        </DropdownMenuPrimitive.ItemIndicator>
+      </span>
+      {children}
+    </DropdownMenuPrimitive.CheckboxItem>
+  )
+}
+
+function DropdownMenuRadioGroup({
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>) {
+  return (
+    <DropdownMenuPrimitive.RadioGroup
+      data-slot="dropdown-menu-radio-group"
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuRadioItem({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
+  return (
+    <DropdownMenuPrimitive.RadioItem
+      data-slot="dropdown-menu-radio-item"
+      className={cn(
+        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+        <DropdownMenuPrimitive.ItemIndicator>
+          <CircleIcon className="size-2 fill-current" />
+        </DropdownMenuPrimitive.ItemIndicator>
+      </span>
+      {children}
+    </DropdownMenuPrimitive.RadioItem>
+  )
+}
+
+function DropdownMenuLabel({
+  className,
+  inset,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Label> & {
+  inset?: boolean
+}) {
+  return (
+    <DropdownMenuPrimitive.Label
+      data-slot="dropdown-menu-label"
+      data-inset={inset}
+      className={cn(
+        "px-2 py-1.5 text-sm font-medium data-[inset]:pl-8",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuSeparator({
+  className,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Separator>) {
+  return (
+    <DropdownMenuPrimitive.Separator
+      data-slot="dropdown-menu-separator"
+      className={cn("bg-border -mx-1 my-1 h-px", className)}
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuShortcut({
+  className,
+  ...props
+}: React.ComponentProps<"span">) {
+  return (
+    <span
+      data-slot="dropdown-menu-shortcut"
+      className={cn(
+        "text-muted-foreground ml-auto text-xs tracking-widest",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuSub({
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {
+  return <DropdownMenuPrimitive.Sub data-slot="dropdown-menu-sub" {...props} />
+}
+
+function DropdownMenuSubTrigger({
+  className,
+  inset,
+  children,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & {
+  inset?: boolean
+}) {
+  return (
+    <DropdownMenuPrimitive.SubTrigger
+      data-slot="dropdown-menu-sub-trigger"
+      data-inset={inset}
+      className={cn(
+        "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <ChevronRightIcon className="ml-auto size-4" />
+    </DropdownMenuPrimitive.SubTrigger>
+  )
+}
+
+function DropdownMenuSubContent({
+  className,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
+  return (
+    <DropdownMenuPrimitive.SubContent
+      data-slot="dropdown-menu-sub-content"
+      className={cn(
+        "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-md border p-1 shadow-lg",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export {
+  DropdownMenu,
+  DropdownMenuPortal,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+}
+
+
+================================================================================
+FILE: components/ui/input.tsx
+================================================================================
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+  return (
+    <input
+      type={type}
+      data-slot="input"
+      className={cn(
+        "file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+        "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Input }
+
+
+================================================================================
+FILE: components/ui/label.tsx
+================================================================================
+"use client"
+
+import * as React from "react"
+import { Label as LabelPrimitive } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+function Label({
+  className,
+  ...props
+}: React.ComponentProps<typeof LabelPrimitive.Root>) {
+  return (
+    <LabelPrimitive.Root
+      data-slot="label"
+      className={cn(
+        "flex items-center gap-2 text-sm leading-none font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Label }
+
+
+================================================================================
+FILE: components/ui/popover.tsx
+================================================================================
+"use client"
+
+import * as React from "react"
+import { Popover as PopoverPrimitive } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+function Popover({
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Root>) {
+  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+}
+
+function PopoverTrigger({
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
+  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
+}
+
+function PopoverContent({
+  className,
+  align = "center",
+  sideOffset = 4,
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+  return (
+    <PopoverPrimitive.Portal>
+      <PopoverPrimitive.Content
+        data-slot="popover-content"
+        align={align}
+        sideOffset={sideOffset}
+        className={cn(
+          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-md border p-4 shadow-md outline-hidden",
+          className
+        )}
+        {...props}
+      />
+    </PopoverPrimitive.Portal>
+  )
+}
+
+function PopoverAnchor({
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
+  return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />
+}
+
+function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="popover-header"
+      className={cn("flex flex-col gap-1 text-sm", className)}
+      {...props}
+    />
+  )
+}
+
+function PopoverTitle({ className, ...props }: React.ComponentProps<"h2">) {
+  return (
+    <div
+      data-slot="popover-title"
+      className={cn("font-medium", className)}
+      {...props}
+    />
+  )
+}
+
+function PopoverDescription({
+  className,
+  ...props
+}: React.ComponentProps<"p">) {
+  return (
+    <p
+      data-slot="popover-description"
+      className={cn("text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverAnchor,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverDescription,
+}
+
+
+================================================================================
+FILE: components/ui/select.tsx
+================================================================================
+"use client"
+
+import * as React from "react"
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+import { Select as SelectPrimitive } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+function Select({
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Root>) {
+  return <SelectPrimitive.Root data-slot="select" {...props} />
+}
+
+function SelectGroup({
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Group>) {
+  return <SelectPrimitive.Group data-slot="select-group" {...props} />
+}
+
+function SelectValue({
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Value>) {
+  return <SelectPrimitive.Value data-slot="select-value" {...props} />
+}
+
+function SelectTrigger({
+  className,
+  size = "default",
+  children,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
+  size?: "sm" | "default"
+}) {
+  return (
+    <SelectPrimitive.Trigger
+      data-slot="select-trigger"
+      data-size={size}
+      className={cn(
+        "border-input data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:hover:bg-input/50 flex w-fit items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-9 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <SelectPrimitive.Icon asChild>
+        <ChevronDownIcon className="size-4 opacity-50" />
+      </SelectPrimitive.Icon>
+    </SelectPrimitive.Trigger>
+  )
+}
+
+function SelectContent({
+  className,
+  children,
+  position = "item-aligned",
+  align = "center",
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  return (
+    <SelectPrimitive.Portal>
+      <SelectPrimitive.Content
+        data-slot="select-content"
+        className={cn(
+          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border shadow-md",
+          position === "popper" &&
+            "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+          className
+        )}
+        position={position}
+        align={align}
+        {...props}
+      >
+        <SelectScrollUpButton />
+        <SelectPrimitive.Viewport
+          className={cn(
+            "p-1",
+            position === "popper" &&
+              "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1"
+          )}
+        >
+          {children}
+        </SelectPrimitive.Viewport>
+        <SelectScrollDownButton />
+      </SelectPrimitive.Content>
+    </SelectPrimitive.Portal>
+  )
+}
+
+function SelectLabel({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Label>) {
+  return (
+    <SelectPrimitive.Label
+      data-slot="select-label"
+      className={cn("text-muted-foreground px-2 py-1.5 text-xs", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectItem({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Item>) {
+  return (
+    <SelectPrimitive.Item
+      data-slot="select-item"
+      className={cn(
+        "focus:bg-accent focus:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        className
+      )}
+      {...props}
+    >
+      <span
+        data-slot="select-item-indicator"
+        className="absolute right-2 flex size-3.5 items-center justify-center"
+      >
+        <SelectPrimitive.ItemIndicator>
+          <CheckIcon className="size-4" />
+        </SelectPrimitive.ItemIndicator>
+      </span>
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    </SelectPrimitive.Item>
+  )
+}
+
+function SelectSeparator({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Separator>) {
+  return (
+    <SelectPrimitive.Separator
+      data-slot="select-separator"
+      className={cn("bg-border pointer-events-none -mx-1 my-1 h-px", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectScrollUpButton({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.ScrollUpButton>) {
+  return (
+    <SelectPrimitive.ScrollUpButton
+      data-slot="select-scroll-up-button"
+      className={cn(
+        "flex cursor-default items-center justify-center py-1",
+        className
+      )}
+      {...props}
+    >
+      <ChevronUpIcon className="size-4" />
+    </SelectPrimitive.ScrollUpButton>
+  )
+}
+
+function SelectScrollDownButton({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.ScrollDownButton>) {
+  return (
+    <SelectPrimitive.ScrollDownButton
+      data-slot="select-scroll-down-button"
+      className={cn(
+        "flex cursor-default items-center justify-center py-1",
+        className
+      )}
+      {...props}
+    >
+      <ChevronDownIcon className="size-4" />
+    </SelectPrimitive.ScrollDownButton>
+  )
+}
+
+export {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectScrollDownButton,
+  SelectScrollUpButton,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+}
+
+
+================================================================================
+FILE: components/ui/tabs.tsx
+================================================================================
+"use client"
+
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+import { Tabs as TabsPrimitive } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+function Tabs({
+  className,
+  orientation = "horizontal",
+  ...props
+}: React.ComponentProps<typeof TabsPrimitive.Root>) {
+  return (
+    <TabsPrimitive.Root
+      data-slot="tabs"
+      data-orientation={orientation}
+      orientation={orientation}
+      className={cn(
+        "group/tabs flex gap-2 data-[orientation=horizontal]:flex-col",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+const tabsListVariants = cva(
+  "rounded-lg p-[3px] group-data-[orientation=horizontal]/tabs:h-9 data-[variant=line]:rounded-none group/tabs-list text-muted-foreground inline-flex w-fit items-center justify-center group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col",
+  {
+    variants: {
+      variant: {
+        default: "bg-muted",
+        line: "gap-1 bg-transparent",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+)
+
+function TabsList({
+  className,
+  variant = "default",
+  ...props
+}: React.ComponentProps<typeof TabsPrimitive.List> &
+  VariantProps<typeof tabsListVariants>) {
+  return (
+    <TabsPrimitive.List
+      data-slot="tabs-list"
+      data-variant={variant}
+      className={cn(tabsListVariants({ variant }), className)}
+      {...props}
+    />
+  )
+}
+
+function TabsTrigger({
+  className,
+  ...props
+}: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
+  return (
+    <TabsPrimitive.Trigger
+      data-slot="tabs-trigger"
+      className={cn(
+        "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring text-foreground/60 hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-all group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 group-data-[variant=default]/tabs-list:data-[state=active]:shadow-sm group-data-[variant=line]/tabs-list:data-[state=active]:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-[state=active]:bg-transparent dark:group-data-[variant=line]/tabs-list:data-[state=active]:border-transparent dark:group-data-[variant=line]/tabs-list:data-[state=active]:bg-transparent",
+        "data-[state=active]:bg-background dark:data-[state=active]:text-foreground dark:data-[state=active]:border-input dark:data-[state=active]:bg-input/30 data-[state=active]:text-foreground",
+        "after:bg-foreground after:absolute after:opacity-0 after:transition-opacity group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:bottom-[-5px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-[state=active]:after:opacity-100",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function TabsContent({
+  className,
+  ...props
+}: React.ComponentProps<typeof TabsPrimitive.Content>) {
+  return (
+    <TabsPrimitive.Content
+      data-slot="tabs-content"
+      className={cn("flex-1 outline-none", className)}
+      {...props}
+    />
+  )
+}
+
+export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants }
+
+
+================================================================================
+FILE: components/ui/textarea.tsx
+================================================================================
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+  return (
+    <textarea
+      data-slot="textarea"
+      className={cn(
+        "border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 flex field-sizing-content min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Textarea }
+
+
+================================================================================
+FILE: components/ui/tooltip.tsx
+================================================================================
+"use client"
+
+import * as React from "react"
+import { Tooltip as TooltipPrimitive } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+function TooltipProvider({
+  delayDuration = 0,
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
+  return (
+    <TooltipPrimitive.Provider
+      data-slot="tooltip-provider"
+      delayDuration={delayDuration}
+      {...props}
+    />
+  )
+}
+
+function Tooltip({
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+}
+
+function TooltipTrigger({
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
+  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+}
+
+function TooltipContent({
+  className,
+  sideOffset = 0,
+  children,
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+  return (
+    <TooltipPrimitive.Portal>
+      <TooltipPrimitive.Content
+        data-slot="tooltip-content"
+        sideOffset={sideOffset}
+        className={cn(
+          "bg-foreground text-background animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance",
+          className
+        )}
+        {...props}
+      >
+        {children}
+        <TooltipPrimitive.Arrow className="bg-foreground fill-foreground z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+      </TooltipPrimitive.Content>
+    </TooltipPrimitive.Portal>
+  )
+}
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
+
+
+================================================================================
+END OF CODEBASE
+================================================================================
