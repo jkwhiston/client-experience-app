@@ -45,12 +45,14 @@ export function NotesModal({
 
   const label = EXPERIENCE_LABELS[experience.experience_type]
 
-  // Sync content when modal opens or experience changes
+  // Reset state when the modal opens
   useEffect(() => {
-    setContent(experience.notes || '')
-    setIsEditing(false)
-    setSaveStatus('')
-  }, [experience.notes, open])
+    if (open) {
+      setContent(experience.notes || '')
+      setIsEditing(false)
+      setSaveStatus('')
+    }
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync completed_at editing value
   useEffect(() => {
@@ -175,9 +177,7 @@ export function NotesModal({
               ref={textareaRef}
               value={content}
               onChange={(e) => handleContentChange(e.target.value)}
-              onBlur={() => {
-                if (!content.trim()) setIsEditing(false)
-              }}
+              onBlur={() => setIsEditing(false)}
               className="min-h-[200px] resize-none border-0 p-0 focus-visible:ring-0 text-sm leading-relaxed bg-transparent"
               placeholder="Start writing notes..."
               autoFocus
