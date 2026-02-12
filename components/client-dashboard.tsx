@@ -31,10 +31,20 @@ export function ClientDashboard() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('active')
   const [focusTab, setFocusTab] = useState<FocusTab>('overview')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [sortOption, setSortOption] = useState<SortOption>('name_asc')
+  const [sortOption, setSortOption] = useState<SortOption>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('sortOption') as SortOption) || 'name_asc'
+    }
+    return 'name_asc'
+  })
   const [searchQuery, setSearchQuery] = useState('')
   const [summaryOpen, setSummaryOpen] = useState(true)
   const [now, setNow] = useState(new Date())
+
+  // Persist sort option to localStorage
+  useEffect(() => {
+    localStorage.setItem('sortOption', sortOption)
+  }, [sortOption])
 
   // Tick every second for live countdowns
   useEffect(() => {
