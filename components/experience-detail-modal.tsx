@@ -78,6 +78,16 @@ export function ExperienceDetailModal({
   const [stagedDeadlineMinute, setStagedDeadlineMinute] = useState(59)
   const [stagedDeadlineAmPm, setStagedDeadlineAmPm] = useState<'AM' | 'PM'>('PM')
 
+  // Controlled calendar months for stable navigation
+  const [signedOnMonth, setSignedOnMonth] = useState<Date>(() => parseISO(client.signed_on_date))
+  const [deadlineMonth, setDeadlineMonth] = useState<Date>(() => new Date())
+  const [completionMonth, setCompletionMonth] = useState<Date>(() => new Date())
+
+  // Direct date entry text inputs
+  const [signedOnInput, setSignedOnInput] = useState('')
+  const [deadlineInput, setDeadlineInput] = useState('')
+  const [completionInput, setCompletionInput] = useState('')
+
   const expType = experience.experience_type
   const label = EXPERIENCE_LABELS[expType]
 
@@ -182,6 +192,35 @@ export function ExperienceDetailModal({
     }
   }, [derivedStatus, secondsRemaining, experience.status, relativeTiming])
 
+  function parseDateInput(value: string): Date | null {
+    const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+    if (!match) return null
+    const [, m, d, y] = match
+    const month = parseInt(m) - 1
+    const day = parseInt(d)
+    const year = parseInt(y)
+    const date = new Date(year, month, day)
+    if (isNaN(date.getTime()) || date.getMonth() !== month || date.getDate() !== day) return null
+    return date
+  }
+
+  function formatDateInput(prev: string, raw: string): string {
+    // Strip everything except digits
+    const digits = raw.replace(/\D/g, '').slice(0, 8)
+    // Auto-insert slashes: MM/DD/YYYY
+    if (digits.length <= 2) return digits
+    if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
+  }
+
+  function handleSignedOnCalendarOpen(open: boolean) {
+    if (open) {
+      setSignedOnMonth(parseISO(client.signed_on_date))
+      setSignedOnInput('')
+    }
+    setCalendarOpen(open)
+  }
+
   function formatSignedDate(dateStr: string): string {
     const [y, m, d] = dateStr.split('-')
     return `${m}/${d}/${y}`
@@ -207,6 +246,8 @@ export function ExperienceDetailModal({
       // Parse existing completed_at into firm-timezone staged values
       const zoned = toZonedTime(new Date(experience.completed_at), firmTz)
       setStagedDate(zoned)
+      setCompletionMonth(zoned)
+      setCompletionInput('')
       const h24 = zoned.getHours()
       const ampm = h24 >= 12 ? 'PM' : 'AM'
       const h12 = h24 % 12 || 12
@@ -220,6 +261,7 @@ export function ExperienceDetailModal({
   function handleStagedDateSelect(date: Date | undefined) {
     if (!date) return
     setStagedDate(date)
+    setCompletionMonth(date)
   }
 
   async function handleCompletionSave() {
@@ -251,6 +293,8 @@ export function ExperienceDetailModal({
       // Initialize staged values from the current effective deadline
       const zoned = toZonedTime(dueAtEffective, firmTz)
       setStagedDeadlineDate(zoned)
+      setDeadlineMonth(zoned)
+      setDeadlineInput('')
       const h24 = zoned.getHours()
       const ampm = h24 >= 12 ? 'PM' : 'AM'
       const h12 = h24 % 12 || 12
@@ -264,6 +308,7 @@ export function ExperienceDetailModal({
   function handleStagedDeadlineDateSelect(date: Date | undefined) {
     if (!date) return
     setStagedDeadlineDate(date)
+    setDeadlineMonth(date)
   }
 
   async function handleDeadlineSave() {
@@ -401,7 +446,7 @@ export function ExperienceDetailModal({
                   Signed On
                 </span>
               </div>
-              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <Popover open={calendarOpen} onOpenChange={handleSignedOnCalendarOpen}>
                 <PopoverTrigger asChild>
                   <button
                     className="text-sm text-muted-foreground hover:text-primary transition-colors cursor-pointer text-left"
@@ -410,11 +455,33 @@ export function ExperienceDetailModal({
                   </button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
+                  <div className="px-3 pt-3 pb-1">
+                    <input
+                      type="text"
+                      placeholder="MM/DD/YYYY"
+                      value={signedOnInput}
+                      onChange={(e) => {
+                        const v = formatDateInput(signedOnInput, e.target.value)
+                        setSignedOnInput(v)
+                        const parsed = parseDateInput(v)
+                        if (parsed) setSignedOnMonth(parsed)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const parsed = parseDateInput(signedOnInput)
+                          if (parsed) handleDateSelect(parsed)
+                        }
+                      }}
+                      className="w-full h-8 text-sm rounded-md border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+                    />
+                  </div>
                   <Calendar
                     mode="single"
+                    fixedWeeks
                     selected={parseISO(client.signed_on_date)}
                     onSelect={handleDateSelect}
-                    defaultMonth={parseISO(client.signed_on_date)}
+                    month={signedOnMonth}
+                    onMonthChange={setSignedOnMonth}
                   />
                 </PopoverContent>
               </Popover>
@@ -442,11 +509,39 @@ export function ExperienceDetailModal({
                   </button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
+                  <div className="px-3 pt-3 pb-1">
+                    <input
+                      type="text"
+                      placeholder="MM/DD/YYYY"
+                      value={deadlineInput}
+                      onChange={(e) => {
+                        const v = formatDateInput(deadlineInput, e.target.value)
+                        setDeadlineInput(v)
+                        const parsed = parseDateInput(v)
+                        if (parsed) {
+                          setDeadlineMonth(parsed)
+                          setStagedDeadlineDate(parsed)
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const parsed = parseDateInput(deadlineInput)
+                          if (parsed) {
+                            setStagedDeadlineDate(parsed)
+                            handleDeadlineSave()
+                          }
+                        }
+                      }}
+                      className="w-full h-8 text-sm rounded-md border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+                    />
+                  </div>
                   <Calendar
                     mode="single"
+                    fixedWeeks
                     selected={stagedDeadlineDate ?? dueAtEffective}
                     onSelect={handleStagedDeadlineDateSelect}
-                    defaultMonth={dueAtEffective}
+                    month={deadlineMonth}
+                    onMonthChange={setDeadlineMonth}
                   />
                   {/* Time picker row */}
                   <div className="border-t border-border px-3 py-2.5 flex items-center gap-2">
@@ -562,11 +657,39 @@ export function ExperienceDetailModal({
                     </button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
+                    <div className="px-3 pt-3 pb-1">
+                      <input
+                        type="text"
+                        placeholder="MM/DD/YYYY"
+                        value={completionInput}
+                        onChange={(e) => {
+                          const v = formatDateInput(completionInput, e.target.value)
+                          setCompletionInput(v)
+                          const parsed = parseDateInput(v)
+                          if (parsed) {
+                            setCompletionMonth(parsed)
+                            setStagedDate(parsed)
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const parsed = parseDateInput(completionInput)
+                            if (parsed) {
+                              setStagedDate(parsed)
+                              handleCompletionSave()
+                            }
+                          }
+                        }}
+                        className="w-full h-8 text-sm rounded-md border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+                      />
+                    </div>
                     <Calendar
                       mode="single"
+                      fixedWeeks
                       selected={stagedDate ?? new Date(experience.completed_at)}
                       onSelect={handleStagedDateSelect}
-                      defaultMonth={new Date(experience.completed_at)}
+                      month={completionMonth}
+                      onMonthChange={setCompletionMonth}
                     />
                     {/* Time picker row */}
                     <div className="border-t border-border px-3 py-2.5 flex items-center gap-2">

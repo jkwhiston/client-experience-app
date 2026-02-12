@@ -96,6 +96,7 @@ A Next.js web app for tracking three time-based client milestones: **24-Hour**, 
 | status           | 'pending' \| 'yes' \| 'no'   | DB-level status                |
 | completed_at     | timestamptz                   | Nullable; set on completion    |
 | notes            | text                          | Markdown content               |
+| todos            | jsonb                         | Default `'[]'`; array of `{ id, text, done }` |
 | created_at       | timestamptz                   |                                |
 | updated_at       | timestamptz                   |                                |
 
@@ -106,8 +107,10 @@ type ExperienceType = 'hour24' | 'day14' | 'day30'
 type ExperienceStatus = 'pending' | 'yes' | 'no'        // DB values
 type DerivedStatus = 'pending' | 'done' | 'done_late' | 'failed'  // Display values
 
+interface TodoItem { id: string; text: string; done: boolean }
+
 interface ClientWithExperiences extends Client {
-  client_experiences: ClientExperience[]
+  client_experiences: ClientExperience[]  // each has notes: string, todos: TodoItem[]
 }
 ```
 
@@ -224,7 +227,9 @@ The Notes icon in the header closes the detail modal and opens the Notes Modal.
 
 **Trigger**: Notes icon on hover actions, or Notes icon inside the Detail Modal header.
 
-**Contents**: Markdown editor with auto-save, copy functionality. No status controls. Uses `showCloseButton={false}` on DialogContent since it has a custom close button.
+**Contents**: Collapsible todo list (above) and markdown notes editor (below) with auto-save, copy functionality. No status controls. Uses `showCloseButton={false}` on DialogContent since it has a custom close button.
+
+**Todo list**: "Add Todo" button in the header creates items. Each item is a row with checkbox, inline text input, and hover-visible delete button. Completed items show an animated strikethrough (CSS `scaleX` transition on a measurement span). Keyboard: Enter inserts new item below, Backspace on empty deletes and re-focuses, Arrow Up/Down navigates. Collapsible via chevron toggle showing `(done/total)` count. Todos are stored as JSONB in the `todos` column and auto-saved with the same debounce pattern as notes (500ms).
 
 ### Hover Actions (`timeline-node.tsx`)
 
@@ -343,6 +348,27 @@ Required in `.env.local`:
 8. **Summary card visual differentiation** (`summary-row.tsx`) — Each experience type card now has a unique left-border accent and subtle background tint: 24-Hour (blue), 14-Day (violet), 30-Day (teal). Font sizes increased: title `text-sm` → `text-base`, counts `text-xs` → `text-sm`, hint `text-[10px]` → `text-xs`.
 
 9. **Unique Google Font per client name** (`lib/client-fonts.ts`, `client-row.tsx`) — New utility assigns each client a deterministic font from a curated pool of 20 Google Fonts (Playfair Display, Raleway, Merriweather, Oswald, etc.) by hashing `client.id`. Fonts are loaded on-demand via `<link>` tags (bold weight only). Applied via inline `fontFamily` style to the name display button and editing input. Only client names are affected; all other text uses the default app font.
+
+### UX & Feature Updates (Feb 12, 2026 — afternoon)
+
+1. **Notes modal: fixed autosave kicking out of edit mode** (`notes-modal.tsx`) — The `useEffect` that synced content from `experience.notes` was resetting `isEditing` to false on every autosave. Changed the effect to only fire when the modal opens/closes (not on `experience.notes` changes). Also fixed `onBlur` to always exit edit mode (previously only exited when content was empty).
+
+2. **Sort option persists across refreshes** (`client-dashboard.tsx`) — `sortOption` is now initialized from `localStorage` and written back via a `useEffect` whenever it changes. Refreshing the page no longer resets to "Name A→Z".
+
+3. **Calendar UX improvements** (`experience-detail-modal.tsx`) — All three calendar popovers (Signed On, Deadline, Completion) now have:
+   - `fixedWeeks` prop so the calendar always renders 6 week rows, preventing height jumps when navigating between months.
+   - Controlled `month`/`onMonthChange` state for programmatic navigation.
+   - A date text input (`MM/DD/YYYY`) at the top of each popover with auto-formatting (`formatDateInput` strips non-digits and inserts slashes as you type). On valid input, the calendar navigates to that month. Enter key saves/confirms the date.
+
+4. **Notes modal: todo list feature** (`notes-modal.tsx`, `lib/types.ts`, `supabase/migrations/20260212_add_todos.sql`) — New `todos` JSONB column on `client_experiences` (migration required). `TodoItem` type: `{ id, text, done }`. Notes modal now has:
+   - "Add Todo" button in the header.
+   - Collapsible "To-dos (done/total)" section above the notes area.
+   - Each item: custom checkbox, inline text input, hover-visible delete (X) button.
+   - Animated strikethrough on completed items: an invisible measurement `<span>` mirrors the text width; a `scaleX` CSS transition draws a 2px line across just the text (not the full input width).
+   - Keyboard: Enter inserts new item below, Backspace on empty deletes and refocuses, Arrow Up/Down navigates.
+   - Debounced autosave (500ms) via `updateExperience` with optimistic local updates.
+
+5. **Modal border styling** (`components/ui/dialog.tsx`) — Border changed from `border` (1px, default color) to `border-[1.5px] border-muted-foreground/35` for better visibility against the dark background.
 
 ---
 

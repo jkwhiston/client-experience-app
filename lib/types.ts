@@ -25,6 +25,12 @@ export interface Client {
   updated_at: string
 }
 
+export interface TodoItem {
+  id: string
+  text: string
+  done: boolean
+}
+
 export interface ClientExperience {
   id: string
   client_id: string
@@ -33,6 +39,7 @@ export interface ClientExperience {
   completed_at: string | null
   custom_due_at: string | null
   notes: string
+  todos: TodoItem[]
   created_at: string
   updated_at: string
 }
