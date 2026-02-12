@@ -1,6 +1,6 @@
 # Developer Documentation — Client Experience Tracking App
 
-> Last updated: February 10, 2026
+> Last updated: February 12, 2026
 
 ## Overview
 
@@ -29,16 +29,17 @@ A Next.js web app for tracking three time-based client milestones: **24-Hour**, 
 ```
 ├── app/
 │   ├── api/auth/route.ts        # POST login / DELETE logout
-│   ├── globals.css              # Tailwind + CSS theme variables
+│   ├── globals.css              # Tailwind + CSS theme variables + pulse animations
 │   ├── layout.tsx               # Root layout (ThemeProvider, fonts)
 │   ├── login/page.tsx           # Password auth page
 │   └── page.tsx                 # Home — renders ClientDashboard
 ├── components/
 │   ├── add-client-dialog.tsx    # Dialog to add a new client
-│   ├── client-dashboard.tsx     # Top-level dashboard (state, filters, sorting, focus tabs)
-│   ├── client-list.tsx          # Renders list of ClientRow components
-│   ├── client-row.tsx           # Single client row: info + timeline stepper
-│   ├── controls-bar.tsx         # Search, filters, sort dropdown, add/export
+    │   ├── client-dashboard.tsx     # Top-level dashboard (state, filters, sorting, focus tabs)
+    │   ├── client-list.tsx          # Renders list of ClientRow components
+    │   ├── client-row.tsx           # Single client row: info + timeline stepper + delete
+    │   ├── controls-bar.tsx         # Search, filters, sort dropdown, add/import/export
+    │   ├── import-clients-dialog.tsx # JSON import dialog with schema copy + validation
 │   ├── dashboard-header.tsx     # Header: title, Active/Archived tabs, theme toggle, sign out
 │   ├── experience-detail-modal.tsx  # Detail modal: countdown hero, editable sign-on date, status dropdown
 │   ├── focus-tabs.tsx           # Focus tabs (Overview, 24-Hour, 14-Day, 30-Day)
@@ -47,13 +48,14 @@ A Next.js web app for tracking three time-based client milestones: **24-Hour**, 
 │   ├── theme-provider.tsx       # next-themes wrapper
 │   ├── theme-toggle.tsx         # Dark/light toggle button
 │   ├── timeline-node.tsx        # Timeline node: circle + countdown + hover actions
-│   └── ui/                      # shadcn/ui primitives (badge, button, calendar, card,
-│                                #   dialog, dropdown-menu, input, label, popover,
-│                                #   select, tabs, textarea, tooltip)
+│   └── ui/                      # shadcn/ui primitives (alert-dialog, badge, button,
+    │                                #   calendar, card, dialog, dropdown-menu, input,
+    │                                #   label, popover, select, tabs, textarea, tooltip)
 ├── lib/
 │   ├── deadlines.ts             # All deadline math, formatting, status derivation
-│   ├── queries.ts               # Supabase CRUD (fetchClients, createClient, updateClient, updateExperience)
-│   ├── types.ts                 # TypeScript types & constants
+│   ├── client-fonts.ts           # Per-client Google Font assignment (hash-based)
+    │   ├── queries.ts               # Supabase CRUD (fetchClients, createClient, updateClient, updateExperience, deleteClient)
+    │   ├── types.ts                 # TypeScript types & constants
 │   ├── utils.ts                 # cn() utility (clsx + tailwind-merge)
 │   └── supabase/
 │       ├── client.ts            # Browser Supabase client
@@ -140,7 +142,7 @@ All deadline logic is centralized here. Key concepts:
 | Function                    | Returns                     | Used For                        |
 |-----------------------------|-----------------------------|---------------------------------|
 | `formatDuration(secs)`      | `"2d 5h 30m"`              | General duration display        |
-| `formatDurationCompact(secs)` | `"2d 5h"` or `"30m"`     | Small circle countdown (future) |
+| `formatDurationCompact(secs)` | `{ line1, line2 }`       | Future node stacked countdown   |
 | `formatDurationWithSeconds(secs)` | `{ line1, line2 }`  | Active node two-line timer      |
 | `formatLateCompactTwoLine(secs)` | `{ line1, line2 }`   | Late node two-line timer        |
 | `formatCompletedShort(at)`  | `"Completed Feb 9"`        | Below done circles              |
@@ -171,17 +173,26 @@ app/page.tsx
 
 The timeline is a horizontal stepper with three nodes connected by a track:
 
-- **Track**: Two overlapping divs — a dotted gray background line and a solid colored overlay. The overlay uses a CSS `linear-gradient` computed by `getTrackGradient()` based on each segment's derived status:
+- **Row Container** (`client-row.tsx`): `min-h-[200px]`, `py-5 pl-10 pr-14`. Uses `items-stretch` so all `TimelineNode` components stretch to the same height.
+
+- **Track**: Two overlapping absolutely-positioned divs — a dotted gray background line and a solid colored overlay. Positioned at `left-[72px] right-[88px] top-[calc(50%+10px)]` to align with circle centers and stay within circle edges. The overlay uses a CSS `linear-gradient` computed by `getTrackGradient()` based on each segment's derived status:
   - Green = done (on time)
   - Amber = done_late
   - Red = failed
   - Transparent = pending/future
 
-- **Node Types** (in `timeline-node.tsx`):
-  - **Active/Late** (110px circle): Live two-line countdown with seconds, due date inside, blue glow (pending) or red glow (failed/late) with intensifying hover effect.
+- **Node Layout** (in `timeline-node.tsx`): Each node uses a 3-zone vertical flex layout (`h-full flex-col`) for consistent alignment:
+  - **Top zone** (`h-9 mb-3`): Experience type label. Fixed height ensures labels align across all nodes regardless of circle size. Labels are `text-xl font-bold` — blue for active pending, red for active late, `text-muted-foreground/50` for inactive.
+  - **Middle zone** (`flex-1 flex items-center justify-center`): Circle centered within. The `flex-1` absorbs remaining height, so the circle midpoint is consistent across nodes. Below-circle text (completed date, due date) is positioned `absolute top-full` so it stays close to the circle without affecting centering.
+  - **Bottom zone** (`min-h-[28px]`): Hover action icons only.
+
+- **Node Types**:
+  - **Active/Late** (110px circle): Live two-line countdown with seconds, due date inside. Blue border + pulse animation (pending) or red border + pulse animation (late). CSS `animate-pulse-blue` / `animate-pulse-red` provides a subtle breathing glow effect; animation is removed on hover (`animation: none`) so the static `group-hover` ring/shadow takes over.
   - **Done** (44px circle): Green checkmark (on-time) or amber checkmark (done late), "Completed [date]" below.
-  - **Future** (44px circle): Compact countdown inside, gray border, "Due: [date]" below.
-  - All circle backgrounds use opaque `bg-card` (not semi-transparent tints) so the track line does not show through. Borders are fully opaque as well.
+  - **Future** (48px circle, `h-12 w-12`): Stacked two-line countdown inside (`formatDurationCompact` returns `{ line1, line2 }`), `border-2 border-border`, "Due: [date]" below.
+  - All circle backgrounds use opaque `bg-card` so the track line does not show through. Borders are fully opaque.
+
+- **Pulse Animation** (in `app/globals.css`): Two `@keyframes` (`pulse-blue`, `pulse-red`) animate `box-shadow` with ring spread (3px–5px) and outer glow. Applied via `.animate-pulse-blue` / `.animate-pulse-red` classes on active node circles. A `.group:hover` CSS rule sets `animation: none` to cleanly hand off to the static Tailwind hover glow.
 
 ### Modal System
 
@@ -217,14 +228,14 @@ The Notes icon in the header closes the detail modal and opens the Notes Modal.
 
 ### Hover Actions (`timeline-node.tsx`)
 
-Visible below the circle on hover:
+Visible in the bottom zone on hover (opacity transition):
 
 | Node Status       | Actions Shown                           |
 |--------------------|-----------------------------------------|
 | Pending / Failed   | Notes icon + green checkmark (mark done) |
 | Done / Done Late   | Notes icon only                         |
 
-The Undo (RotateCcw) button was removed from hover — status changes for completed items are done through the Detail Modal's dropdown.
+Status changes for completed items are done through the Detail Modal's dropdown. The tooltip ("Click to expand details & notes") was removed — circles are clickable without hint text.
 
 ---
 
@@ -285,13 +296,53 @@ Required in `.env.local`:
 
 1. **Fixed double X close button** on modals — Both `notes-modal.tsx` and `experience-detail-modal.tsx` now pass `showCloseButton={false}` to `DialogContent` since they render their own custom close buttons in the header.
 
-2. **Fixed track line bleeding through circles** (`timeline-node.tsx`) — All circle backgrounds changed from semi-transparent tints (`bg-red-500/10`, `bg-blue-500/10`, `bg-green-500/10`, `bg-amber-500/10`, `bg-muted/30`) to opaque `bg-card`. All circle borders changed from semi-transparent (`/60`, `/50`) to fully opaque. Track line left edge shifted from `left-8` to `left-12` in `client-row.tsx`.
+2. **Fixed track line bleeding through circles** (`timeline-node.tsx`) — All circle backgrounds changed from semi-transparent tints (`bg-red-500/10`, `bg-blue-500/10`, `bg-green-500/10`, `bg-amber-500/10`, `bg-muted/30`) to opaque `bg-card`. All circle borders changed from semi-transparent (`/60`, `/50`) to fully opaque.
 
 3. **Redesigned Experience Detail Modal** (`experience-detail-modal.tsx`) — Large countdown hero section with colored left border, 2-column metadata grid (Signed On / Deadline) with clear visual hierarchy, and editable signed-on date via Calendar popover.
 
 4. **Amber track line for late achievements** (`client-row.tsx`) — `getSegmentStatuses()` now returns `done_late` as a distinct status (previously collapsed into `done`). `getTrackGradient()` maps it to `rgb(245,158,11)` (amber-500).
 
 5. **Client name column improvements** (`client-row.tsx`) — Client name bumped from `text-sm` to `text-base` for more prominence. Removed "Click name/date to edit" hint text.
+
+### Timeline Layout Redesign (Feb 11, 2026)
+
+1. **3-zone node layout** (`timeline-node.tsx`) — Restructured each `TimelineNode` into three vertical zones (top label / middle circle / bottom actions) inside a full-height flex column. This ensures experience type headers align consistently across all nodes regardless of circle size (110px active vs 48px future).
+
+2. **Enlarged experience type headers** — Labels increased from `text-xs`/`text-sm` to `text-xl font-bold`. Active pending headers are blue, active late headers are red, inactive headers use `text-muted-foreground/50` for stronger visual hierarchy.
+
+3. **Increased row height** (`client-row.tsx`) — Container `min-h` increased from `140px` to `200px` with `py-5` padding. Changed from `items-center` to `items-stretch` so all nodes stretch to the same height.
+
+4. **Track line alignment** (`client-row.tsx`) — Track positioned at `top-[calc(50%+10px)]` to align with circle centers in the 3-zone layout. Insets changed to `left-[72px] right-[88px]` to prevent the track from poking past circle edges.
+
+5. **Future nodes enlarged** (`timeline-node.tsx`) — Increased from `h-11 w-11` (44px) to `h-12 w-12` (48px) with `border-2` (matching done nodes).
+
+6. **Stacked countdown display** (`lib/deadlines.ts`) — `formatDurationCompact()` now returns `{ line1, line2 }` (e.g., `{ line1: "5d", line2: "9h" }`) instead of a single string, so values are always vertically stacked inside future node circles.
+
+7. **Below-circle text positioning** (`timeline-node.tsx`) — Completed dates and due dates are now `absolute top-full` so they stay close to their circle without affecting flex centering.
+
+8. **Breathing pulse animation** (`app/globals.css` + `timeline-node.tsx`) — Active node circles have a CSS keyframe animation (`pulse-blue` for pending, `pulse-red` for late) that gently oscillates the ring glow (3px–5px spread, varying opacity) over 3 seconds. On hover, the animation is removed via `.group:hover { animation: none }` so the static Tailwind ring/shadow hover effect takes over cleanly.
+
+9. **Removed tooltip** (`timeline-node.tsx`) — The "Click to expand details & notes" tooltip wrapper was removed from timeline nodes. Tooltip/TooltipContent/TooltipTrigger imports cleaned up.
+
+### Feature & Polish Pass (Feb 12, 2026)
+
+1. **Timeline track gradient alignment** (`client-row.tsx`) — `getTrackGradient()` color stops changed from equal thirds (33%/66%) to true midpoints (25%/75%) matching `justify-between` node positions. Additionally, hard color stops replaced with soft 4%-wide transition zones (23%–27%, 73%–77%) so adjacent segment colors blend smoothly instead of flipping abruptly.
+
+2. **JSON import feature** (`components/import-clients-dialog.tsx`, `controls-bar.tsx`) — New "Import JSON" button in the controls bar opens a dialog with a monospaced textarea for pasting a JSON array of `{ name, signed_on_date }` objects. Includes validation (JSON syntax, array structure, per-item field checks), a "Copy Schema" button that copies the expected format to clipboard, and sequential import via `createClientWithExperiences` with success/failure count summary.
+
+3. **Fixed name column width** (`client-row.tsx`) — Left column changed from variable `min-w-[180px] max-w-[220px]` to fixed `w-[240px] shrink-0`, ensuring all rows have identical border alignment. Name text uses `text-wrap break-words` instead of `truncate` so full names are always visible.
+
+4. **Negative overdue counters everywhere** (`experience-detail-modal.tsx`, `lib/deadlines.ts`) — Overdue countdown in the detail modal hero now displays with a `-` prefix (was showing absolute value). `formatDurationCompact()` also prefixes `-` when `totalSeconds` is negative, so inactive/future nodes past their deadline show negative countdowns on the timeline.
+
+5. **Alternating row styling** (`client-list.tsx`, `client-row.tsx`) — Row index passed to `ClientRow`. Even/odd rows alternate between `bg-card/60`/`bg-card/40` backgrounds. A `w-1` vertical bar at the left edge of each row alternates between `bg-muted-foreground/30` (even) and `bg-muted-foreground/15` (odd).
+
+6. **Delete client feature** (`lib/queries.ts`, `client-row.tsx`, `client-list.tsx`, `client-dashboard.tsx`) — New `deleteClient()` query deletes experiences then client record. `removeClientLocal` callback filters client from state. Active rows show a red "Delete" option in the `...` dropdown (separated by a divider). Archived rows show a "Delete" button next to "Unarchive". Both trigger an `AlertDialog` confirmation: "This will permanently delete {name} and all associated experience data. This action cannot be undone."
+
+7. **Collapsible experience summaries** (`client-dashboard.tsx`) — Summary cards wrapped in a collapsible section with a clickable "Experience Summaries" header and chevron icon toggle. Defaults to open.
+
+8. **Summary card visual differentiation** (`summary-row.tsx`) — Each experience type card now has a unique left-border accent and subtle background tint: 24-Hour (blue), 14-Day (violet), 30-Day (teal). Font sizes increased: title `text-sm` → `text-base`, counts `text-xs` → `text-sm`, hint `text-[10px]` → `text-xs`.
+
+9. **Unique Google Font per client name** (`lib/client-fonts.ts`, `client-row.tsx`) — New utility assigns each client a deterministic font from a curated pool of 20 Google Fonts (Playfair Display, Raleway, Merriweather, Oswald, etc.) by hashing `client.id`. Fonts are loaded on-demand via `<link>` tags (bold weight only). Applied via inline `fontFamily` style to the name display button and editing input. Only client names are affected; all other text uses the default app font.
 
 ---
 

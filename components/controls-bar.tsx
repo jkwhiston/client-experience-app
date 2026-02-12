@@ -17,8 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Search, Plus, Download } from 'lucide-react'
+import { Search, Plus, Download, Upload } from 'lucide-react'
 import { AddClientDialog } from './add-client-dialog'
+import { ImportClientsDialog } from './import-clients-dialog'
 
 interface ControlsBarProps {
   searchQuery: string
@@ -60,6 +61,7 @@ export function ControlsBar({
   onAddClient,
 }: ControlsBarProps) {
   const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
 
   const isArchived = activeTab === 'archived'
 
@@ -127,10 +129,16 @@ export function ControlsBar({
               Export CSV
             </Button>
           ) : (
-            <Button size="sm" className="text-xs" onClick={() => setAddDialogOpen(true)}>
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Add Client
-            </Button>
+            <>
+              <Button variant="outline" size="sm" className="text-xs" onClick={() => setImportDialogOpen(true)}>
+                <Upload className="h-3.5 w-3.5 mr-1.5" />
+                Import JSON
+              </Button>
+              <Button size="sm" className="text-xs" onClick={() => setAddDialogOpen(true)}>
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Add Client
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -138,6 +146,12 @@ export function ControlsBar({
       <AddClientDialog
         open={addDialogOpen}
         onOpenChange={setAddDialogOpen}
+        onAddClient={onAddClient}
+      />
+
+      <ImportClientsDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
         onAddClient={onAddClient}
       />
     </div>

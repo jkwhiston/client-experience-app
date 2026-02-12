@@ -139,7 +139,7 @@ export function ExperienceDetailModal({
           }
         }
         return {
-          countdown: formatDuration(Math.abs(secondsRemaining)),
+          countdown: `-${formatDuration(Math.abs(secondsRemaining))}`,
           subtitle: 'Overdue',
           statusLabel: 'Past Due',
           colorClass: 'text-red-500',

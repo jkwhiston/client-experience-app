@@ -185,14 +185,16 @@ export function formatDurationParts(totalSeconds: number): {
  * e.g. "4h 12m" or "6d"
  */
 export function formatDurationCompact(totalSeconds: number): { line1: string; line2: string } {
+  const negative = totalSeconds < 0
+  const prefix = negative ? '-' : ''
   const abs = Math.abs(Math.floor(totalSeconds))
   const days = Math.floor(abs / 86400)
   const hours = Math.floor((abs % 86400) / 3600)
   const minutes = Math.floor((abs % 3600) / 60)
 
-  if (days > 0) return { line1: `${days}d`, line2: `${hours}h` }
-  if (hours > 0) return { line1: `${hours}h`, line2: `${minutes}m` }
-  return { line1: `${minutes}m`, line2: '' }
+  if (days > 0) return { line1: `${prefix}${days}d`, line2: `${hours}h` }
+  if (hours > 0) return { line1: `${prefix}${hours}h`, line2: `${minutes}m` }
+  return { line1: `${prefix}${minutes}m`, line2: '' }
 }
 
 /**

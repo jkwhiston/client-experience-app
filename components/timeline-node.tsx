@@ -200,8 +200,8 @@ export function TimelineNode({
                     'relative rounded-full flex flex-col items-center justify-center transition-all duration-200',
                     'h-[110px] w-[110px] px-2 text-center overflow-hidden',
                     derivedStatus === 'failed'
-                      ? 'border-2 border-red-500 bg-card ring-[3px] ring-red-500/40 group-hover:ring-[5px] group-hover:ring-red-500/50 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.35)]'
-                      : 'border-2 border-blue-500 bg-card ring-[3px] ring-blue-500/40 group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
+                      ? 'border-2 border-red-500 bg-card animate-pulse-red group-hover:ring-[5px] group-hover:ring-red-500/50 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.35)]'
+                      : 'border-2 border-blue-500 bg-card animate-pulse-blue group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
                   )}>
                     {/* Timer (two lines) */}
                     {timerLines && (

@@ -125,3 +125,21 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes pulse-blue {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(59,130,246,0.2), 0 0 12px rgba(59,130,246,0.1); }
+  50%      { box-shadow: 0 0 0 5px rgba(59,130,246,0.5), 0 0 20px rgba(59,130,246,0.25); }
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(239,68,68,0.2), 0 0 12px rgba(239,68,68,0.1); }
+  50%      { box-shadow: 0 0 0 5px rgba(239,68,68,0.5), 0 0 20px rgba(239,68,68,0.25); }
+}
+
+.animate-pulse-blue { animation: pulse-blue 3s ease-in-out infinite; }
+.animate-pulse-red  { animation: pulse-red 3s ease-in-out infinite; }
+
+.group:hover .animate-pulse-blue,
+.group:hover .animate-pulse-red {
+  animation: none;
+}

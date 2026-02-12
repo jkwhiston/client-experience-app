@@ -13,6 +13,7 @@ interface ClientListProps {
     clientId: string,
     updater: (c: ClientWithExperiences) => ClientWithExperiences
   ) => void
+  removeClientLocal: (clientId: string) => void
 }
 
 export function ClientList({
@@ -22,6 +23,7 @@ export function ClientList({
   now,
   loading,
   updateClientLocal,
+  removeClientLocal,
 }: ClientListProps) {
   if (loading) {
     return (
@@ -58,14 +60,16 @@ export function ClientList({
         )}
       </h2>
       <div className="space-y-3">
-        {clients.map((client) => (
+        {clients.map((client, index) => (
           <ClientRow
             key={client.id}
+            index={index}
             client={client}
             focusTab={focusTab}
             activeTab={activeTab}
             now={now}
             updateClientLocal={updateClientLocal}
+            removeClientLocal={removeClientLocal}
           />
         ))}
       </div>

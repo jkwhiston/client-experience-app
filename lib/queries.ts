@@ -87,3 +87,27 @@ export async function updateExperience(
   }
   return true
 }
+
+export async function deleteClient(id: string): Promise<boolean> {
+  // Delete experiences first (foreign key)
+  const { error: expError } = await supabase
+    .from('client_experiences')
+    .delete()
+    .eq('client_id', id)
+
+  if (expError) {
+    console.error('Error deleting client experiences:', expError)
+    return false
+  }
+
+  const { error } = await supabase
+    .from('clients')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    console.error('Error deleting client:', error)
+    return false
+  }
+  return true
+}

@@ -15,19 +15,32 @@ import {
   getNowEffective,
   getDerivedStatus,
 } from '@/lib/deadlines'
-import { updateClient } from '@/lib/queries'
+import { updateClient, deleteClient } from '@/lib/queries'
+import { getClientFont, getGoogleFontUrl } from '@/lib/client-fonts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { MoreHorizontal, Pause, Play, Archive, ArchiveRestore } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { MoreHorizontal, Pause, Play, Archive, ArchiveRestore, Trash2 } from 'lucide-react'
 import { TimelineNode } from './timeline-node'
 
 interface ClientRowProps {
+  index: number
   client: ClientWithExperiences
   focusTab: FocusTab
   activeTab: ActiveTab
@@ -36,25 +49,32 @@ interface ClientRowProps {
     clientId: string,
     updater: (c: ClientWithExperiences) => ClientWithExperiences
   ) => void
+  removeClientLocal: (clientId: string) => void
 }
 
 export function ClientRow({
+  index,
   client,
   focusTab,
   activeTab,
   now,
   updateClientLocal,
+  removeClientLocal,
 }: ClientRowProps) {
   const [editingName, setEditingName] = useState(false)
   const [editingDate, setEditingDate] = useState(false)
   const [nameValue, setNameValue] = useState(client.name)
   const [dateValue, setDateValue] = useState(client.signed_on_date)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
   const dateRef = useRef<HTMLInputElement>(null)
 
   const isArchived = activeTab === 'archived'
   const isFocusMode = focusTab !== 'overview'
   const activeStage = getActiveStage(client, now)
+  const isEven = index % 2 === 0
+  const nameFont = getClientFont(client.id)
+  const nameFontStyle = { fontFamily: `"${nameFont}", sans-serif` }
 
   async function saveName() {
     setEditingName(false)
@@ -122,6 +142,11 @@ export function ClientRow({
     })
   }
 
+  async function handleDelete() {
+    removeClientLocal(client.id)
+    await deleteClient(client.id)
+  }
+
   function formatSignedDate(dateStr: string): string {
     const [y, m, d] = dateStr.split('-')
     return `${m}/${d}/${y}`
@@ -158,17 +183,23 @@ export function ClientRow({
     const c1 = colorMap(statuses[0])
     const c2 = colorMap(statuses[1])
     const c3 = colorMap(statuses[2])
-    return `linear-gradient(to right, ${c1} 0%, ${c1} 33%, ${c2} 33%, ${c2} 66%, ${c3} 66%, ${c3} 100%)`
+    return `linear-gradient(to right, ${c1} 0%, ${c1} 23%, ${c2} 27%, ${c2} 73%, ${c3} 77%, ${c3} 100%)`
   }
 
   return (
     <div
-      className={`flex items-stretch rounded-lg border border-border bg-card/50 overflow-hidden ${
-        client.paused ? 'opacity-70' : ''
-      }`}
+      className={`flex items-stretch rounded-lg border border-border overflow-hidden ${
+        isEven ? 'bg-card/60' : 'bg-card/40'
+      } ${client.paused ? 'opacity-70' : ''}`}
     >
+      {/* Load unique Google Font for this client's name */}
+      <link rel="stylesheet" href={getGoogleFontUrl(nameFont)} />
+
+      {/* Alternating vertical bar */}
+      <div className={`w-1 shrink-0 ${isEven ? 'bg-muted-foreground/30' : 'bg-muted-foreground/15'}`} />
+
       {/* Left column: client info */}
-      <div className="flex flex-col justify-center p-4 min-w-[180px] max-w-[220px] border-r border-border">
+      <div className="flex flex-col justify-center p-4 w-[240px] shrink-0 border-r border-border">
         {/* Name */}
         {editingName && !isArchived ? (
           <Input
@@ -184,6 +215,7 @@ export function ClientRow({
               }
             }}
             className="h-7 text-base font-bold p-1"
+            style={nameFontStyle}
             autoFocus
           />
         ) : (
@@ -194,7 +226,8 @@ export function ClientRow({
                 setTimeout(() => nameRef.current?.focus(), 0)
               }
             }}
-            className="text-base font-bold text-left truncate hover:text-primary transition-colors"
+            className="text-base font-bold text-left text-wrap break-words hover:text-primary transition-colors"
+            style={nameFontStyle}
           >
             {client.name}
           </button>
@@ -259,20 +292,39 @@ export function ClientRow({
                   <Archive className="h-3.5 w-3.5 mr-2" />
                   Archive
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-red-500 focus:text-red-500"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-2" />
+                  Delete
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
 
           {isArchived && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs h-7"
-              onClick={handleArchiveToggle}
-            >
-              <ArchiveRestore className="h-3.5 w-3.5 mr-1.5" />
-              Unarchive
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-7"
+                onClick={handleArchiveToggle}
+              >
+                <ArchiveRestore className="h-3.5 w-3.5 mr-1.5" />
+                Unarchive
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-7 text-red-500 hover:text-red-500"
+                onClick={() => setDeleteConfirmOpen(true)}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                Delete
+              </Button>
+            </div>
           )}
 
           {client.paused && !isArchived && (
@@ -319,6 +371,27 @@ export function ClientRow({
           )
         })}
       </div>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <span className="font-semibold">{client.name}</span> and
+              all associated experience data. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={handleDelete}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

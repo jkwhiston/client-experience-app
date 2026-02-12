@@ -18,6 +18,7 @@ import {
   getDerivedStatus,
 } from '@/lib/deadlines'
 import { fetchClients } from '@/lib/queries'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { DashboardHeader } from './dashboard-header'
 import { SummaryRow } from './summary-row'
 import { ControlsBar } from './controls-bar'
@@ -32,6 +33,7 @@ export function ClientDashboard() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sortOption, setSortOption] = useState<SortOption>('name_asc')
   const [searchQuery, setSearchQuery] = useState('')
+  const [summaryOpen, setSummaryOpen] = useState(true)
   const [now, setNow] = useState(new Date())
 
   // Tick every second for live countdowns
@@ -66,6 +68,10 @@ export function ClientDashboard() {
 
   const addClientLocal = useCallback((client: ClientWithExperiences) => {
     setClients((prev) => [client, ...prev])
+  }, [])
+
+  const removeClientLocal = useCallback((clientId: string) => {
+    setClients((prev) => prev.filter((c) => c.id !== clientId))
   }, [])
 
   // Get derived status for a specific experience
@@ -231,10 +237,25 @@ export function ClientDashboard() {
         <DashboardHeader activeTab={activeTab} onActiveTabChange={setActiveTab} />
 
         {activeTab === 'active' && (
-          <SummaryRow
-            computeCounts={computeSummaryCounts}
-            onCountClick={handleSummaryClick}
-          />
+          <div className="pb-4">
+            <button
+              onClick={() => setSummaryOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors mb-2"
+            >
+              {summaryOpen ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+              Experience Summaries
+            </button>
+            {summaryOpen && (
+              <SummaryRow
+                computeCounts={computeSummaryCounts}
+                onCountClick={handleSummaryClick}
+              />
+            )}
+          </div>
         )}
 
         <ControlsBar
@@ -260,6 +281,7 @@ export function ClientDashboard() {
           now={now}
           loading={loading}
           updateClientLocal={updateClientLocal}
+          removeClientLocal={removeClientLocal}
         />
       </div>
     </div>
