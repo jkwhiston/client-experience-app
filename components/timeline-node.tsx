@@ -249,27 +249,19 @@ export function TimelineNode({
             <div className="flex-1 flex items-center justify-center">
               <div className="relative flex flex-col items-center">
                 {isLiveNode ? (
-                  /* ===== ACTIVE / LATE: Large circle ===== */
+                  /* ===== ACTIVE: Large circle (pending countdown) ===== */
                   <div className={cn(
                     'relative rounded-full flex flex-col items-center justify-center transition-all duration-200',
                     'h-[110px] w-[110px] px-2 text-center overflow-hidden',
-                    derivedStatus === 'failed'
-                      ? 'border-2 border-red-500 bg-card animate-pulse-red group-hover:ring-[5px] group-hover:ring-red-500/50 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.35)]'
-                      : 'border-2 border-blue-500 bg-card animate-pulse-blue group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
+                    'border-2 border-blue-500 bg-card animate-pulse-blue group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
                   )}>
                     {/* Timer (two lines) */}
                     {timerLines && (
                       <div className="flex flex-col items-center leading-tight">
-                        <span className={cn(
-                          'text-sm font-mono font-bold',
-                          derivedStatus === 'failed' ? 'text-red-500' : 'text-blue-500'
-                        )}>
+                        <span className="text-sm font-mono font-bold text-blue-500">
                           {timerLines.line1}
                         </span>
-                        <span className={cn(
-                          'text-sm font-mono font-bold',
-                          derivedStatus === 'failed' ? 'text-red-500' : 'text-blue-500'
-                        )}>
+                        <span className="text-sm font-mono font-bold text-blue-500">
                           {timerLines.line2}
                         </span>
                       </div>
