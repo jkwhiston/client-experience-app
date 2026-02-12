@@ -52,7 +52,7 @@ export function ClientList({
           <>
             Archived Clients{' '}
             <span className="text-xs font-normal">
-              Read-only by default &bull; Unarchive to edit
+              Unarchive to edit client details
             </span>
           </>
         ) : (

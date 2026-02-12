@@ -10,7 +10,7 @@ import type {
 import { EXPERIENCE_TYPES } from '@/lib/types'
 import {
   getActiveStage,
-  getDueAt,
+  getEffectiveDueDate,
   getDueAtEffective,
   getNowEffective,
   getDerivedStatus,
@@ -157,7 +157,7 @@ export function ClientRow({
     return EXPERIENCE_TYPES.map((expType) => {
       const exp = client.client_experiences.find((e) => e.experience_type === expType)
       if (!exp) return 'pending'
-      const dueAt = getDueAt(client.signed_on_date, expType)
+      const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
       const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
       const status = getDerivedStatus({
         status: exp.status,

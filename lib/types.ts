@@ -31,6 +31,7 @@ export interface ClientExperience {
   experience_type: ExperienceType
   status: ExperienceStatus
   completed_at: string | null
+  custom_due_at: string | null
   notes: string
   created_at: string
   updated_at: string

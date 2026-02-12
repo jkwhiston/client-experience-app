@@ -12,7 +12,7 @@ import type {
 } from '@/lib/types'
 import { EXPERIENCE_TYPES } from '@/lib/types'
 import {
-  getDueAt,
+  getEffectiveDueDate,
   getDueAtEffective,
   getNowEffective,
   getDerivedStatus,
@@ -82,7 +82,7 @@ export function ClientDashboard() {
       )
       if (!exp) return 'pending'
 
-      const dueAt = getDueAt(client.signed_on_date, expType)
+      const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
       const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
       const nowEff = getNowEffective(client, now)
 
@@ -157,14 +157,14 @@ export function ClientDashboard() {
         case 'deadline_day14':
         case 'deadline_day30': {
           const expType = sortOption.replace('deadline_', '') as ExperienceType
-          const dueA = getDueAtEffective(
-            getDueAt(a.signed_on_date, expType),
-            a.paused_total_seconds
-          )
-          const dueB = getDueAtEffective(
-            getDueAt(b.signed_on_date, expType),
-            b.paused_total_seconds
-          )
+          const expA = a.client_experiences.find(e => e.experience_type === expType)
+          const expB = b.client_experiences.find(e => e.experience_type === expType)
+          const dueA = expA
+            ? getDueAtEffective(getEffectiveDueDate(expA, a.signed_on_date), a.paused_total_seconds)
+            : new Date(0)
+          const dueB = expB
+            ? getDueAtEffective(getEffectiveDueDate(expB, b.signed_on_date), b.paused_total_seconds)
+            : new Date(0)
           return dueA.getTime() - dueB.getTime()
         }
         default:

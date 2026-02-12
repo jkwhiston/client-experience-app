@@ -49,6 +49,21 @@ export function getDueAt(
 }
 
 /**
+ * Get the effective due date for an experience.
+ * Uses custom_due_at if set, otherwise falls back to the default computed deadline.
+ */
+export function getEffectiveDueDate(
+  experience: { custom_due_at: string | null; experience_type: ExperienceType },
+  signedOnDate: string | Date,
+  firmTz: string = FIRM_TIMEZONE
+): Date {
+  if (experience.custom_due_at) {
+    return new Date(experience.custom_due_at)
+  }
+  return getDueAt(signedOnDate, experience.experience_type, firmTz)
+}
+
+/**
  * Shift a deadline by the total paused seconds.
  */
 export function getDueAtEffective(dueAt: Date, pausedTotalSeconds: number): Date {
@@ -112,7 +127,7 @@ export function getActiveStage(
     const exp = client.client_experiences.find((e) => e.experience_type === expType)
     if (!exp) continue
 
-    const dueAt = getDueAt(client.signed_on_date, expType)
+    const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
     const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
     const derivedStatus = getDerivedStatus({
       status: exp.status,
@@ -348,4 +363,51 @@ export function formatDueTime(dueAt: Date, firmTz: string = FIRM_TIMEZONE): stri
  */
 export function formatDueTimeFull(dueAt: Date, firmTz: string = FIRM_TIMEZONE): string {
   return `${formatDueTime(dueAt, firmTz)} (end of day)`
+}
+
+/**
+ * Format a completion date with full detail for the metadata row.
+ * e.g. "Feb 9, 2026 at 12:00 PM"
+ */
+export function formatCompletedDateFull(completedAt: string, firmTz: string = FIRM_TIMEZONE): string {
+  const zoned = toZonedTime(new Date(completedAt), firmTz)
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const month = monthNames[zoned.getMonth()]
+  const day = zoned.getDate()
+  const year = zoned.getFullYear()
+  const hours = zoned.getHours()
+  const minutes = zoned.getMinutes()
+  const ampm = hours >= 12 ? 'PM' : 'AM'
+  const displayHours = hours % 12 || 12
+  return `${month} ${day}, ${year} at ${displayHours}:${String(minutes).padStart(2, '0')} ${ampm}`
+}
+
+/**
+ * Compute the relative timing between a completion date and a deadline.
+ * Returns a human-readable label and whether the completion was early.
+ * e.g. { label: "2d 5h", isEarly: true } or { label: "1d 3h", isEarly: false }
+ */
+export function formatRelativeTiming(
+  completedAt: string,
+  dueAt: Date
+): { label: string; isEarly: boolean } {
+  const completedDate = new Date(completedAt)
+  const diffMs = dueAt.getTime() - completedDate.getTime()
+  const isEarly = diffMs >= 0
+  const absSec = Math.abs(Math.floor(diffMs / 1000))
+
+  if (absSec < 60) {
+    return { label: 'On time', isEarly: true }
+  }
+
+  const days = Math.floor(absSec / 86400)
+  const hours = Math.floor((absSec % 86400) / 3600)
+  const minutes = Math.floor((absSec % 3600) / 60)
+
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0) parts.push(`${hours}h`)
+  if (days === 0 && minutes > 0) parts.push(`${minutes}m`)
+
+  return { label: parts.join(' ') || 'On time', isEarly }
 }

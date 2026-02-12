@@ -9,7 +9,7 @@ import type {
 } from '@/lib/types'
 import { EXPERIENCE_LABELS, EXPERIENCE_TYPES } from '@/lib/types'
 import {
-  getDueAt,
+  getEffectiveDueDate,
   getDueAtEffective,
   getNowEffective,
   getDerivedStatus,
@@ -60,8 +60,8 @@ export function TimelineNode({
   const label = EXPERIENCE_LABELS[expType]
 
   const dueAt = useMemo(
-    () => getDueAt(client.signed_on_date, expType),
-    [client.signed_on_date, expType]
+    () => getEffectiveDueDate(experience, client.signed_on_date),
+    [client.signed_on_date, experience.custom_due_at, experience.experience_type]
   )
   const dueAtEffective = useMemo(
     () => getDueAtEffective(dueAt, client.paused_total_seconds),
@@ -82,7 +82,7 @@ export function TimelineNode({
     const active = EXPERIENCE_TYPES.findIndex((t) => {
       const exp = client.client_experiences.find((e) => e.experience_type === t)
       if (!exp) return false
-      const d = getDueAt(client.signed_on_date, t)
+      const d = getEffectiveDueDate(exp, client.signed_on_date)
       const dEff = getDueAtEffective(d, client.paused_total_seconds)
       const status = getDerivedStatus({
         status: exp.status,
@@ -159,17 +159,17 @@ export function TimelineNode({
   const dimmed = isFocusMode && !isFocused
 
   const handleNodeClick = () => {
-    if (!isArchived) setDetailModalOpen(true)
+    setDetailModalOpen(true)
   }
 
   return (
     <>
           <div
             role="button"
-            tabIndex={isArchived ? undefined : 0}
+            tabIndex={0}
             onClick={handleNodeClick}
             onKeyDown={(e) => {
-              if (!isArchived && (e.key === 'Enter' || e.key === ' ')) {
+              if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault()
                 handleNodeClick()
               }
@@ -298,7 +298,6 @@ export function TimelineNode({
             {/* Bottom zone: hover actions only */}
             <div className="flex flex-col items-center min-h-[28px]">
               {/* Action icons: below, visible on hover */}
-              {!isArchived && (
                 <div className="flex items-center gap-0.5 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                   <Button
                     variant="ghost"
@@ -321,7 +320,6 @@ export function TimelineNode({
                     </Button>
                   )}
                 </div>
-              )}
             </div>
           </div>
 

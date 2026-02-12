@@ -5,14 +5,16 @@ import { format, parseISO } from 'date-fns'
 import type { ClientWithExperiences, ClientExperience, ExperienceStatus } from '@/lib/types'
 import { EXPERIENCE_LABELS } from '@/lib/types'
 import {
-  getDueAt,
+  getEffectiveDueDate,
   getDueAtEffective,
   getNowEffective,
   getDerivedStatus,
   formatDuration,
-  formatDueTimeFull,
-  formatCompletedShort,
+  formatDueTime,
+  formatCompletedDateFull,
+  formatRelativeTiming,
 } from '@/lib/deadlines'
+import { fromZonedTime, toZonedTime } from 'date-fns-tz'
 import { updateExperience, updateClient } from '@/lib/queries'
 import {
   Dialog,
@@ -61,13 +63,27 @@ export function ExperienceDetailModal({
   updateClientLocal,
 }: ExperienceDetailModalProps) {
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [completionCalendarOpen, setCompletionCalendarOpen] = useState(false)
+
+  // Staged date+time for the completion date picker
+  const [stagedDate, setStagedDate] = useState<Date | null>(null)
+  const [stagedHour, setStagedHour] = useState(12)
+  const [stagedMinute, setStagedMinute] = useState(0)
+  const [stagedAmPm, setStagedAmPm] = useState<'AM' | 'PM'>('PM')
+
+  // Staged date+time for the deadline picker
+  const [deadlineCalendarOpen, setDeadlineCalendarOpen] = useState(false)
+  const [stagedDeadlineDate, setStagedDeadlineDate] = useState<Date | null>(null)
+  const [stagedDeadlineHour, setStagedDeadlineHour] = useState(11)
+  const [stagedDeadlineMinute, setStagedDeadlineMinute] = useState(59)
+  const [stagedDeadlineAmPm, setStagedDeadlineAmPm] = useState<'AM' | 'PM'>('PM')
 
   const expType = experience.experience_type
   const label = EXPERIENCE_LABELS[expType]
 
   const dueAt = useMemo(
-    () => getDueAt(client.signed_on_date, expType),
-    [client.signed_on_date, expType]
+    () => getEffectiveDueDate(experience, client.signed_on_date),
+    [client.signed_on_date, experience.custom_due_at, experience.experience_type]
   )
   const dueAtEffective = useMemo(
     () => getDueAtEffective(dueAt, client.paused_total_seconds),
@@ -84,12 +100,12 @@ export function ExperienceDetailModal({
   })
 
   // Map derived status to a user-facing select value
+  // Both 'done' and 'done_late' map to 'done' — late is derived from completion date
   const selectValue = useMemo(() => {
     switch (derivedStatus) {
       case 'done':
-        return 'done'
       case 'done_late':
-        return 'late'
+        return 'done'
       case 'failed':
         if (experience.status === 'no') return 'failed'
         return 'pending' // Past due but still pending in DB
@@ -99,14 +115,21 @@ export function ExperienceDetailModal({
     }
   }, [derivedStatus, experience.status])
 
+  // Relative timing for completed experiences
+  const relativeTiming = useMemo(() => {
+    if ((derivedStatus === 'done' || derivedStatus === 'done_late') && experience.completed_at) {
+      return formatRelativeTiming(experience.completed_at, dueAtEffective)
+    }
+    return null
+  }, [derivedStatus, experience.completed_at, dueAtEffective])
+
   // Hero countdown info
   const heroInfo = useMemo(() => {
     switch (derivedStatus) {
       case 'done': {
-        const earlyBy = secondsRemaining > 0 ? formatDuration(secondsRemaining) : null
         return {
-          countdown: earlyBy ?? 'On time',
-          subtitle: earlyBy ? 'Completed early' : 'Completed on time',
+          countdown: relativeTiming?.label === 'On time' ? 'On time' : relativeTiming?.label ?? 'On time',
+          subtitle: relativeTiming?.label === 'On time' ? 'Completed on schedule' : 'ahead of schedule',
           statusLabel: 'Done',
           colorClass: 'text-green-500',
           borderClass: 'border-green-500',
@@ -116,10 +139,8 @@ export function ExperienceDetailModal({
       }
       case 'done_late':
         return {
-          countdown: experience.completed_at
-            ? formatCompletedShort(experience.completed_at)
-            : 'Late',
-          subtitle: 'Completed after deadline',
+          countdown: relativeTiming?.label ?? 'Late',
+          subtitle: 'behind schedule',
           statusLabel: 'Done Late',
           colorClass: 'text-amber-500',
           borderClass: 'border-amber-500',
@@ -159,7 +180,7 @@ export function ExperienceDetailModal({
           icon: <Clock className="h-5 w-5 text-blue-500" />,
         }
     }
-  }, [derivedStatus, secondsRemaining, experience.status, experience.completed_at])
+  }, [derivedStatus, secondsRemaining, experience.status, relativeTiming])
 
   function formatSignedDate(dateStr: string): string {
     const [y, m, d] = dateStr.split('-')
@@ -179,20 +200,116 @@ export function ExperienceDetailModal({
     await updateClient(client.id, { signed_on_date: dateStr })
   }
 
+  const firmTz = process.env.NEXT_PUBLIC_FIRM_TIMEZONE || 'America/New_York'
+
+  function handleCompletionCalendarOpen(open: boolean) {
+    if (open && experience.completed_at) {
+      // Parse existing completed_at into firm-timezone staged values
+      const zoned = toZonedTime(new Date(experience.completed_at), firmTz)
+      setStagedDate(zoned)
+      const h24 = zoned.getHours()
+      const ampm = h24 >= 12 ? 'PM' : 'AM'
+      const h12 = h24 % 12 || 12
+      setStagedHour(h12)
+      setStagedMinute(zoned.getMinutes())
+      setStagedAmPm(ampm)
+    }
+    setCompletionCalendarOpen(open)
+  }
+
+  function handleStagedDateSelect(date: Date | undefined) {
+    if (!date) return
+    setStagedDate(date)
+  }
+
+  async function handleCompletionSave() {
+    if (!stagedDate) return
+    // Combine staged date + time into a firm-timezone datetime, then convert to UTC
+    const year = stagedDate.getFullYear()
+    const month = stagedDate.getMonth()
+    const day = stagedDate.getDate()
+    const hours24 = stagedAmPm === 'AM' ? stagedHour % 12 : (stagedHour % 12) + 12
+    const localInFirmTz = new Date(year, month, day, hours24, stagedMinute, 0, 0)
+    const utcDate = fromZonedTime(localInFirmTz, firmTz)
+    const newCompletedAt = utcDate.toISOString()
+
+    updateClientLocal(client.id, (c) => ({
+      ...c,
+      client_experiences: c.client_experiences.map((e) =>
+        e.id === experience.id
+          ? { ...e, completed_at: newCompletedAt }
+          : e
+      ),
+    }))
+
+    setCompletionCalendarOpen(false)
+    await updateExperience(experience.id, { completed_at: newCompletedAt })
+  }
+
+  function handleDeadlineCalendarOpen(open: boolean) {
+    if (open) {
+      // Initialize staged values from the current effective deadline
+      const zoned = toZonedTime(dueAtEffective, firmTz)
+      setStagedDeadlineDate(zoned)
+      const h24 = zoned.getHours()
+      const ampm = h24 >= 12 ? 'PM' : 'AM'
+      const h12 = h24 % 12 || 12
+      setStagedDeadlineHour(h12)
+      setStagedDeadlineMinute(zoned.getMinutes())
+      setStagedDeadlineAmPm(ampm)
+    }
+    setDeadlineCalendarOpen(open)
+  }
+
+  function handleStagedDeadlineDateSelect(date: Date | undefined) {
+    if (!date) return
+    setStagedDeadlineDate(date)
+  }
+
+  async function handleDeadlineSave() {
+    if (!stagedDeadlineDate) return
+    const year = stagedDeadlineDate.getFullYear()
+    const month = stagedDeadlineDate.getMonth()
+    const day = stagedDeadlineDate.getDate()
+    const hours24 = stagedDeadlineAmPm === 'AM' ? stagedDeadlineHour % 12 : (stagedDeadlineHour % 12) + 12
+    const localInFirmTz = new Date(year, month, day, hours24, stagedDeadlineMinute, 0, 0)
+    const utcDate = fromZonedTime(localInFirmTz, firmTz)
+    const newCustomDueAt = utcDate.toISOString()
+
+    updateClientLocal(client.id, (c) => ({
+      ...c,
+      client_experiences: c.client_experiences.map((e) =>
+        e.id === experience.id
+          ? { ...e, custom_due_at: newCustomDueAt }
+          : e
+      ),
+    }))
+
+    setDeadlineCalendarOpen(false)
+    await updateExperience(experience.id, { custom_due_at: newCustomDueAt })
+  }
+
+  async function handleDeadlineReset() {
+    updateClientLocal(client.id, (c) => ({
+      ...c,
+      client_experiences: c.client_experiences.map((e) =>
+        e.id === experience.id
+          ? { ...e, custom_due_at: null }
+          : e
+      ),
+    }))
+
+    setDeadlineCalendarOpen(false)
+    await updateExperience(experience.id, { custom_due_at: null })
+  }
+
   async function handleSelectChange(value: string) {
     let newStatus: ExperienceStatus
     let newCompletedAt: string | null = null
 
     switch (value) {
       case 'done':
-        // Done on time: completed_at = now (or clamp to dueAt if already past)
-        newStatus = 'yes'
-        newCompletedAt = new Date(
-          Math.min(Date.now(), dueAtEffective.getTime())
-        ).toISOString()
-        break
-      case 'late':
-        // Late: completed_at = now (implies after deadline)
+        // Done: completed_at = now; user can adjust via the completion date picker
         newStatus = 'yes'
         newCompletedAt = new Date().toISOString()
         break
@@ -310,10 +427,80 @@ export function ExperienceDetailModal({
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Deadline
                 </span>
+                {experience.custom_due_at && (
+                  <span className="text-[9px] font-medium text-amber-500 uppercase tracking-wider">
+                    Custom
+                  </span>
+                )}
               </div>
-              <p className="text-sm font-semibold">
-                {formatDueTimeFull(dueAtEffective)}
-              </p>
+              <Popover open={deadlineCalendarOpen} onOpenChange={handleDeadlineCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="text-sm font-semibold hover:text-primary transition-colors cursor-pointer text-left"
+                  >
+                    {formatDueTime(dueAtEffective)}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={stagedDeadlineDate ?? dueAtEffective}
+                    onSelect={handleStagedDeadlineDateSelect}
+                    defaultMonth={dueAtEffective}
+                  />
+                  {/* Time picker row */}
+                  <div className="border-t border-border px-3 py-2.5 flex items-center gap-2">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={stagedDeadlineHour}
+                      onChange={(e) => {
+                        const v = Math.max(1, Math.min(12, parseInt(e.target.value) || 1))
+                        setStagedDeadlineHour(v)
+                      }}
+                      className="w-11 h-8 text-center text-sm font-mono rounded-md border border-input bg-background px-1 focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    <span className="text-sm font-mono text-muted-foreground">:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={String(stagedDeadlineMinute).padStart(2, '0')}
+                      onChange={(e) => {
+                        const v = Math.max(0, Math.min(59, parseInt(e.target.value) || 0))
+                        setStagedDeadlineMinute(v)
+                      }}
+                      className="w-11 h-8 text-center text-sm font-mono rounded-md border border-input bg-background px-1 focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    <select
+                      value={stagedDeadlineAmPm}
+                      onChange={(e) => setStagedDeadlineAmPm(e.target.value as 'AM' | 'PM')}
+                      className="h-8 text-sm font-mono rounded-md border border-input bg-background px-1.5 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                    >
+                      <option value="AM">AM</option>
+                      <option value="PM">PM</option>
+                    </select>
+                  </div>
+                  {/* Save / Reset buttons */}
+                  <div className="border-t border-border px-3 py-2 flex items-center justify-between">
+                    {experience.custom_due_at ? (
+                      <button
+                        onClick={handleDeadlineReset}
+                        className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                      >
+                        Reset to default
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+                    <Button size="sm" className="h-7 text-xs" onClick={handleDeadlineSave}>
+                      Save
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 
@@ -345,12 +532,6 @@ export function ExperienceDetailModal({
                     Done
                   </span>
                 </SelectItem>
-                <SelectItem value="late">
-                  <span className="flex items-center gap-2">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                    Late
-                  </span>
-                </SelectItem>
                 <SelectItem value="failed">
                   <span className="flex items-center gap-2">
                     <XCircle className="h-3.5 w-3.5 text-red-500" />
@@ -360,6 +541,102 @@ export function ExperienceDetailModal({
               </SelectContent>
             </Select>
           </div>
+
+          {/* Completion details — visible when done/done_late */}
+          {(derivedStatus === 'done' || derivedStatus === 'done_late') && experience.completed_at && (
+            <div className="grid grid-cols-2 gap-4 pt-1">
+              {/* Completed On — editable date */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <CalendarIcon className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Completed On
+                  </span>
+                </div>
+                <Popover open={completionCalendarOpen} onOpenChange={handleCompletionCalendarOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="text-sm text-muted-foreground hover:text-primary transition-colors cursor-pointer text-left"
+                    >
+                      {formatCompletedDateFull(experience.completed_at)}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={stagedDate ?? new Date(experience.completed_at)}
+                      onSelect={handleStagedDateSelect}
+                      defaultMonth={new Date(experience.completed_at)}
+                    />
+                    {/* Time picker row */}
+                    <div className="border-t border-border px-3 py-2.5 flex items-center gap-2">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <input
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={stagedHour}
+                        onChange={(e) => {
+                          const v = Math.max(1, Math.min(12, parseInt(e.target.value) || 1))
+                          setStagedHour(v)
+                        }}
+                        className="w-11 h-8 text-center text-sm font-mono rounded-md border border-input bg-background px-1 focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <span className="text-sm font-mono text-muted-foreground">:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={59}
+                        value={String(stagedMinute).padStart(2, '0')}
+                        onChange={(e) => {
+                          const v = Math.max(0, Math.min(59, parseInt(e.target.value) || 0))
+                          setStagedMinute(v)
+                        }}
+                        className="w-11 h-8 text-center text-sm font-mono rounded-md border border-input bg-background px-1 focus:outline-none focus:ring-1 focus:ring-ring"
+                      />
+                      <select
+                        value={stagedAmPm}
+                        onChange={(e) => setStagedAmPm(e.target.value as 'AM' | 'PM')}
+                        className="h-8 text-sm font-mono rounded-md border border-input bg-background px-1.5 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                      >
+                        <option value="AM">AM</option>
+                        <option value="PM">PM</option>
+                      </select>
+                    </div>
+                    {/* Save button */}
+                    <div className="border-t border-border px-3 py-2 flex justify-end">
+                      <Button size="sm" className="h-7 text-xs" onClick={handleCompletionSave}>
+                        Save
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Relative timing badge */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <Timer className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Timing
+                  </span>
+                </div>
+                {relativeTiming && (
+                  <p className={cn(
+                    'text-sm font-semibold',
+                    relativeTiming.isEarly ? 'text-green-500' : 'text-amber-500'
+                  )}>
+                    {relativeTiming.label === 'On time'
+                      ? 'On time'
+                      : relativeTiming.isEarly
+                        ? `${relativeTiming.label} early`
+                        : `${relativeTiming.label} late`
+                    }
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
