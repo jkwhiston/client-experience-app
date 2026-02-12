@@ -127,7 +127,7 @@ export function ClientRow({
     return `${m}/${d}/${y}`
   }
 
-  function getSegmentStatuses(): ('done' | 'failed' | 'pending')[] {
+  function getSegmentStatuses(): ('done' | 'done_late' | 'failed' | 'pending')[] {
     const nowEff = getNowEffective(client, now)
     return EXPERIENCE_TYPES.map((expType) => {
       const exp = client.client_experiences.find((e) => e.experience_type === expType)
@@ -140,7 +140,8 @@ export function ClientRow({
         dueAt: dueAtEff,
         now: nowEff,
       })
-      if (status === 'done' || status === 'done_late') return 'done'
+      if (status === 'done') return 'done'
+      if (status === 'done_late') return 'done_late'
       if (status === 'failed') return 'failed'
       return 'pending'
     })
@@ -148,8 +149,9 @@ export function ClientRow({
 
   function getTrackGradient(): string {
     const statuses = getSegmentStatuses()
-    const colorMap = (s: 'done' | 'failed' | 'pending') => {
+    const colorMap = (s: 'done' | 'done_late' | 'failed' | 'pending') => {
       if (s === 'done') return 'rgb(34,197,94)'
+      if (s === 'done_late') return 'rgb(245,158,11)'
       if (s === 'failed') return 'rgb(239,68,68)'
       return 'transparent'
     }
@@ -181,7 +183,7 @@ export function ClientRow({
                 setEditingName(false)
               }
             }}
-            className="h-7 text-sm font-bold p-1"
+            className="h-7 text-base font-bold p-1"
             autoFocus
           />
         ) : (
@@ -192,7 +194,7 @@ export function ClientRow({
                 setTimeout(() => nameRef.current?.focus(), 0)
               }
             }}
-            className="text-sm font-bold text-left truncate hover:text-primary transition-colors"
+            className="text-base font-bold text-left truncate hover:text-primary transition-colors"
           >
             {client.name}
           </button>
@@ -228,12 +230,6 @@ export function ClientRow({
           >
             Signed on: {formatSignedDate(client.signed_on_date)}
           </button>
-        )}
-
-        {!isArchived && (
-          <p className="text-[10px] text-muted-foreground/60 mt-1">
-            Click name/date to edit
-          </p>
         )}
 
         {/* Actions */}
@@ -286,10 +282,10 @@ export function ClientRow({
       </div>
 
       {/* Right column: timeline track + nodes */}
-      <div className="flex-1 relative flex items-center justify-between py-6 px-8 min-h-[140px]">
+      <div className="flex-1 relative flex items-stretch justify-between py-5 pl-10 pr-14 min-h-[200px]">
         {/* Track: base dotted line */}
         <div
-          className="absolute left-8 right-8 top-[calc(50%+8px)] -translate-y-1/2 h-[3px] rounded-full"
+          className="absolute left-[72px] right-[88px] top-[calc(50%+10px)] -translate-y-1/2 h-[3px] rounded-full"
           style={{
             backgroundImage: 'repeating-linear-gradient(to right, var(--muted) 0, var(--muted) 6px, transparent 6px, transparent 12px)',
           }}
@@ -297,7 +293,7 @@ export function ClientRow({
         />
         {/* Track: solid color overlay for done/failed segments */}
         <div
-          className="absolute left-8 right-8 top-[calc(50%+8px)] -translate-y-1/2 h-[3px] rounded-full"
+          className="absolute left-[72px] right-[88px] top-[calc(50%+10px)] -translate-y-1/2 h-[3px] rounded-full"
           style={{
             background: getTrackGradient(),
           }}

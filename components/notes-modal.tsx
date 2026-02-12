@@ -125,7 +125,7 @@ export function NotesModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col gap-0 p-0">
+      <DialogContent showCloseButton={false} className="sm:max-w-[600px] max-h-[80vh] flex flex-col gap-0 p-0">
         {/* Header */}
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-border">
           <div className="flex items-center justify-between">

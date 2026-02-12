@@ -23,17 +23,11 @@ import { updateExperience } from '@/lib/queries'
 import { Button } from '@/components/ui/button'
 import {
   Check,
-  X,
-  RotateCcw,
   FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { NotesModal } from './notes-modal'
+import { ExperienceDetailModal } from './experience-detail-modal'
 
 interface TimelineNodeProps {
   experience: ClientExperience
@@ -60,6 +54,7 @@ export function TimelineNode({
   updateClientLocal,
 }: TimelineNodeProps) {
   const [notesOpen, setNotesOpen] = useState(false)
+  const [detailModalOpen, setDetailModalOpen] = useState(false)
 
   const expType = experience.experience_type
   const label = EXPERIENCE_LABELS[expType]
@@ -133,9 +128,9 @@ export function TimelineNode({
   }, [dueAtEffective, isLiveNode])
 
   // Future countdown (compact, for inside the small circle)
-  const futureCountdown = useMemo(() => {
+  const futureCountdown = useMemo((): { line1: string; line2: string } | null => {
     if (isFuture) return formatDurationCompact(secondsRemaining)
-    return ''
+    return null
   }, [isFuture, secondsRemaining])
 
   async function handleStatusChange(newStatus: ExperienceStatus) {
@@ -164,13 +159,11 @@ export function TimelineNode({
   const dimmed = isFocusMode && !isFocused
 
   const handleNodeClick = () => {
-    if (!isArchived) setNotesOpen(true)
+    if (!isArchived) setDetailModalOpen(true)
   }
 
   return (
     <>
-      <Tooltip>
-        <TooltipTrigger asChild>
           <div
             role="button"
             tabIndex={isArchived ? undefined : 0}
@@ -182,159 +175,171 @@ export function TimelineNode({
               }
             }}
             className={cn(
-              'relative group flex flex-col items-center z-10 transition-all duration-200 cursor-pointer',
+              'relative group flex flex-col items-center z-10 h-full transition-all duration-200 cursor-pointer',
               dimmed && 'opacity-50'
             )}
           >
-            {/* Label ABOVE the circle */}
-            <span className={cn(
-              'font-bold mb-1.5',
-              isLiveNode ? 'text-sm' : 'text-xs',
-              isLiveNode && derivedStatus === 'failed' ? 'text-red-400' : '',
-              isLiveNode && derivedStatus === 'pending' ? 'text-blue-400' : '',
-              !isLiveNode && 'text-muted-foreground'
-            )}>
-              {label}
-            </span>
-
-            {/* The circle */}
-            {isLiveNode ? (
-              /* ===== ACTIVE / LATE: Large circle ===== */
-              <div className={cn(
-                'relative rounded-full flex flex-col items-center justify-center transition-all duration-200',
-                'h-[110px] w-[110px] px-2 text-center overflow-hidden',
-                derivedStatus === 'failed'
-                  ? 'border-2 border-red-500/60 bg-red-500/10 ring-[3px] ring-red-500/40 group-hover:ring-[5px] group-hover:ring-red-500/50 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.35)]'
-                  : 'border-2 border-blue-500/60 bg-blue-500/10 ring-[3px] ring-blue-500/40 group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
+            {/* Top zone: Label — fixed height so labels align across nodes */}
+            <div className="flex items-end justify-center h-9 mb-3">
+              <span className={cn(
+                'text-xl font-bold',
+                isLiveNode && derivedStatus === 'failed' ? 'text-red-400' : '',
+                isLiveNode && derivedStatus === 'pending' ? 'text-blue-400' : '',
+                !isLiveNode && 'text-muted-foreground/50'
               )}>
-                {/* Timer (two lines) */}
-                {timerLines && (
-                  <div className="flex flex-col items-center leading-tight">
-                    <span className={cn(
-                      'text-sm font-mono font-bold',
-                      derivedStatus === 'failed' ? 'text-red-500' : 'text-blue-500'
-                    )}>
-                      {timerLines.line1}
-                    </span>
-                    <span className={cn(
-                      'text-sm font-mono font-bold',
-                      derivedStatus === 'failed' ? 'text-red-500' : 'text-blue-500'
-                    )}>
-                      {timerLines.line2}
-                    </span>
-                  </div>
-                )}
-                {/* Due date inside circle */}
-                <span className="text-[9px] text-muted-foreground mt-1 leading-tight">
-                  {dueString}
-                </span>
-
-                {hasNotes && (
-                  <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary" aria-hidden />
-                )}
-              </div>
-            ) : isDone ? (
-              /* ===== DONE: Medium circle with checkmark ===== */
-              <div className={cn(
-                'relative rounded-full flex items-center justify-center transition-all duration-200',
-                'h-11 w-11',
-                derivedStatus === 'done'
-                  ? 'border-2 border-green-500/50 bg-green-500/10 group-hover:ring-2 group-hover:ring-green-500/30 group-hover:shadow-[0_0_12px_rgba(34,197,94,0.25)]'
-                  : 'border-2 border-amber-500/50 bg-amber-500/10 group-hover:ring-2 group-hover:ring-amber-500/30 group-hover:shadow-[0_0_12px_rgba(245,158,11,0.25)]'
-              )}>
-                <svg className={cn(
-                  'h-6 w-6',
-                  derivedStatus === 'done' ? 'text-green-500' : 'text-amber-500'
-                )} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-
-                {hasNotes && (
-                  <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" aria-hidden />
-                )}
-              </div>
-            ) : (
-              /* ===== FUTURE: Small circle with countdown ===== */
-              <div className={cn(
-                'relative rounded-full flex items-center justify-center transition-all duration-200',
-                'h-11 w-11',
-                'border border-border/60 bg-muted/30',
-                'group-hover:ring-1 group-hover:ring-muted-foreground/30 group-hover:shadow-[0_0_8px_rgba(150,150,150,0.15)]'
-              )}>
-                <span className="text-[11px] font-mono text-muted-foreground font-medium leading-none text-center">
-                  {futureCountdown}
-                </span>
-
-                {hasNotes && (
-                  <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" aria-hidden />
-                )}
-              </div>
-            )}
-
-            {/* Text BELOW the circle */}
-            <div className="mt-1.5 text-center">
-              {isDone && (
-                <span className={cn(
-                  'text-xs font-medium block',
-                  derivedStatus === 'done' ? 'text-green-500' : 'text-amber-500'
-                )}>
-                  {completedString}
-                </span>
-              )}
-              {isFuture && (
-                <span className="text-[10px] text-muted-foreground block">
-                  {dueString}
-                </span>
-              )}
+                {label}
+              </span>
             </div>
 
-            {/* Action icons: below, visible on hover */}
-            {!isArchived && (
-              <div className="flex items-center gap-0.5 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={(e) => { e.stopPropagation(); setNotesOpen(true) }}
-                  title="Notes"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                </Button>
-                {(derivedStatus === 'pending' || derivedStatus === 'failed') ? (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 text-green-600 hover:text-green-500"
-                    onClick={(e) => { e.stopPropagation(); handleStatusChange('yes') }}
-                    title="Mark done"
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                  </Button>
+            {/* Middle zone: Circle + nearby text — flex-1 centers group at same midpoint */}
+            <div className="flex-1 flex items-center justify-center">
+              <div className="relative flex flex-col items-center">
+                {isLiveNode ? (
+                  /* ===== ACTIVE / LATE: Large circle ===== */
+                  <div className={cn(
+                    'relative rounded-full flex flex-col items-center justify-center transition-all duration-200',
+                    'h-[110px] w-[110px] px-2 text-center overflow-hidden',
+                    derivedStatus === 'failed'
+                      ? 'border-2 border-red-500 bg-card ring-[3px] ring-red-500/40 group-hover:ring-[5px] group-hover:ring-red-500/50 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.35)]'
+                      : 'border-2 border-blue-500 bg-card ring-[3px] ring-blue-500/40 group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
+                  )}>
+                    {/* Timer (two lines) */}
+                    {timerLines && (
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className={cn(
+                          'text-sm font-mono font-bold',
+                          derivedStatus === 'failed' ? 'text-red-500' : 'text-blue-500'
+                        )}>
+                          {timerLines.line1}
+                        </span>
+                        <span className={cn(
+                          'text-sm font-mono font-bold',
+                          derivedStatus === 'failed' ? 'text-red-500' : 'text-blue-500'
+                        )}>
+                          {timerLines.line2}
+                        </span>
+                      </div>
+                    )}
+                    {/* Due date inside circle */}
+                    <span className="text-[9px] text-muted-foreground mt-1 leading-tight">
+                      {dueString}
+                    </span>
+
+                    {hasNotes && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary" aria-hidden />
+                    )}
+                  </div>
+                ) : isDone ? (
+                  /* ===== DONE: Medium circle with checkmark ===== */
+                  <div className={cn(
+                    'relative rounded-full flex items-center justify-center transition-all duration-200',
+                    'h-11 w-11',
+                    derivedStatus === 'done'
+                      ? 'border-2 border-green-500 bg-card group-hover:ring-2 group-hover:ring-green-500/30 group-hover:shadow-[0_0_12px_rgba(34,197,94,0.25)]'
+                      : 'border-2 border-amber-500 bg-card group-hover:ring-2 group-hover:ring-amber-500/30 group-hover:shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                  )}>
+                    <svg className={cn(
+                      'h-6 w-6',
+                      derivedStatus === 'done' ? 'text-green-500' : 'text-amber-500'
+                    )} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+
+                    {hasNotes && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" aria-hidden />
+                    )}
+                  </div>
                 ) : (
+                  /* ===== FUTURE: Small circle with countdown ===== */
+                  <div className={cn(
+                    'relative rounded-full flex items-center justify-center transition-all duration-200',
+                    'h-12 w-12',
+                    'border-2 border-border bg-card',
+                    'group-hover:ring-1 group-hover:ring-muted-foreground/30 group-hover:shadow-[0_0_8px_rgba(150,150,150,0.15)]'
+                  )}>
+                    {futureCountdown && (
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className="text-[11px] font-mono text-muted-foreground font-medium">
+                          {futureCountdown.line1}
+                        </span>
+                        {futureCountdown.line2 && (
+                          <span className="text-[11px] font-mono text-muted-foreground font-medium">
+                            {futureCountdown.line2}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {hasNotes && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" aria-hidden />
+                    )}
+                  </div>
+                )}
+
+                {/* Text directly below circle — absolute so it doesn't shift circle centering */}
+                <div className="absolute top-full mt-1.5 text-center whitespace-nowrap">
+                  {isDone && (
+                    <span className={cn(
+                      'text-xs font-medium block',
+                      derivedStatus === 'done' ? 'text-green-500' : 'text-amber-500'
+                    )}>
+                      {completedString}
+                    </span>
+                  )}
+                  {isFuture && (
+                    <span className="text-[10px] text-muted-foreground block">
+                      {dueString}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom zone: hover actions only */}
+            <div className="flex flex-col items-center min-h-[28px]">
+              {/* Action icons: below, visible on hover */}
+              {!isArchived && (
+                <div className="flex items-center gap-0.5 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                   <Button
                     variant="ghost"
                     size="icon"
                     className="h-6 w-6"
-                    onClick={(e) => { e.stopPropagation(); handleStatusChange('pending') }}
-                    title="Undo"
+                    onClick={(e) => { e.stopPropagation(); setNotesOpen(true) }}
+                    title="Notes"
                   >
-                    <RotateCcw className="h-3.5 w-3.5" />
+                    <FileText className="h-3.5 w-3.5" />
                   </Button>
-                )}
-              </div>
-            )}
+                  {(derivedStatus === 'pending' || derivedStatus === 'failed') && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-green-600 hover:text-green-500"
+                      onClick={(e) => { e.stopPropagation(); handleStatusChange('yes') }}
+                      title="Mark done"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </TooltipTrigger>
-        <TooltipContent side="right" sideOffset={8}>
-          Click to expand details &amp; notes
-        </TooltipContent>
-      </Tooltip>
 
       <NotesModal
         open={notesOpen}
         onOpenChange={setNotesOpen}
         client={client}
         experience={experience}
+        updateClientLocal={updateClientLocal}
+      />
+
+      <ExperienceDetailModal
+        open={detailModalOpen}
+        onOpenChange={setDetailModalOpen}
+        client={client}
+        experience={experience}
+        now={now}
+        onOpenNotes={() => setNotesOpen(true)}
         updateClientLocal={updateClientLocal}
       />
     </>

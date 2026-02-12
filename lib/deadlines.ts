@@ -184,15 +184,15 @@ export function formatDurationParts(totalSeconds: number): {
  * Format duration compactly for focus mode and mini indicators.
  * e.g. "4h 12m" or "6d"
  */
-export function formatDurationCompact(totalSeconds: number): string {
+export function formatDurationCompact(totalSeconds: number): { line1: string; line2: string } {
   const abs = Math.abs(Math.floor(totalSeconds))
   const days = Math.floor(abs / 86400)
   const hours = Math.floor((abs % 86400) / 3600)
   const minutes = Math.floor((abs % 3600) / 60)
 
-  if (days > 0) return `${days}d ${hours}h`
-  if (hours > 0) return `${hours}h ${minutes}m`
-  return `${minutes}m`
+  if (days > 0) return { line1: `${days}d`, line2: `${hours}h` }
+  if (hours > 0) return { line1: `${hours}h`, line2: `${minutes}m` }
+  return { line1: `${minutes}m`, line2: '' }
 }
 
 /**
