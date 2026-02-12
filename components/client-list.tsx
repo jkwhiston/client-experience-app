@@ -59,7 +59,7 @@ export function ClientList({
           'Active Clients'
         )}
       </h2>
-      <div className="space-y-3">
+      <div className="space-y-5">
         {clients.map((client, index) => (
           <ClientRow
             key={client.id}
