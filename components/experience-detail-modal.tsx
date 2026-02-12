@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { format, parseISO } from 'date-fns'
 import type { ClientWithExperiences, ClientExperience, ExperienceStatus } from '@/lib/types'
-import { EXPERIENCE_LABELS } from '@/lib/types'
+import { EXPERIENCE_LABELS, EXPERIENCE_TYPES } from '@/lib/types'
 import {
   getEffectiveDueDate,
   getDueAtEffective,
@@ -16,6 +16,8 @@ import {
 } from '@/lib/deadlines'
 import { fromZonedTime, toZonedTime } from 'date-fns-tz'
 import { updateExperience, updateClient } from '@/lib/queries'
+import { trackAutoFails, getAutoFails, clearAutoFails } from '@/lib/auto-fail-tracker'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -369,18 +371,106 @@ export function ExperienceDetailModal({
         break
     }
 
+    // Snapshot previous state for undo
+    const prevSnapshot: { id: string; status: ExperienceStatus; completed_at: string | null }[] = [
+      { id: experience.id, status: experience.status, completed_at: experience.completed_at },
+    ]
+
+    // When marking as done, find earlier pending nodes to auto-fail
+    const thisIdx = EXPERIENCE_TYPES.indexOf(expType)
+    const earlierPending = newStatus === 'yes'
+      ? client.client_experiences.filter((e) => {
+          const eIdx = EXPERIENCE_TYPES.indexOf(e.experience_type)
+          return eIdx < thisIdx && e.status === 'pending'
+        })
+      : []
+
+    // Add earlier pending to snapshot before changes
+    for (const ep of earlierPending) {
+      prevSnapshot.push({ id: ep.id, status: ep.status, completed_at: ep.completed_at })
+    }
+
+    // When changing FROM done, auto-revert earlier auto-failed nodes
+    const autoFailedIds = experience.status === 'yes' && newStatus !== 'yes'
+      ? getAutoFails(experience.id)
+      : []
+    const toRevert = autoFailedIds.length > 0
+      ? client.client_experiences.filter((e) => autoFailedIds.includes(e.id) && e.status === 'no')
+      : []
+
+    // Add auto-reverted nodes to snapshot
+    for (const r of toRevert) {
+      prevSnapshot.push({ id: r.id, status: r.status, completed_at: r.completed_at })
+    }
+
+    // Save auto-failed IDs for undo re-population
+    const prevAutoFailedIds = [...autoFailedIds]
+
+    // Apply changes locally
     updateClientLocal(client.id, (c) => ({
       ...c,
-      client_experiences: c.client_experiences.map((e) =>
-        e.id === experience.id
-          ? { ...e, status: newStatus, completed_at: newCompletedAt }
-          : e
-      ),
+      client_experiences: c.client_experiences.map((e) => {
+        if (e.id === experience.id) {
+          return { ...e, status: newStatus, completed_at: newCompletedAt }
+        }
+        if (earlierPending.some((ep) => ep.id === e.id)) {
+          return { ...e, status: 'no' as ExperienceStatus, completed_at: null }
+        }
+        if (toRevert.some((r) => r.id === e.id)) {
+          return { ...e, status: 'pending' as ExperienceStatus, completed_at: null }
+        }
+        return e
+      }),
     }))
 
-    await updateExperience(experience.id, {
-      status: newStatus,
-      completed_at: newCompletedAt,
+    // Track auto-fails (when marking done)
+    if (earlierPending.length > 0) {
+      trackAutoFails(experience.id, earlierPending.map((ep) => ep.id))
+    }
+
+    // Clear auto-fails (when changing from done)
+    if (prevAutoFailedIds.length > 0) {
+      clearAutoFails(experience.id)
+    }
+
+    // Persist to DB
+    await updateExperience(experience.id, { status: newStatus, completed_at: newCompletedAt })
+    for (const ep of earlierPending) {
+      await updateExperience(ep.id, { status: 'no', completed_at: null })
+    }
+    for (const r of toRevert) {
+      await updateExperience(r.id, { status: 'pending', completed_at: null })
+    }
+
+    // Show undo toast
+    const statusLabel = value === 'done' ? 'Done' : value === 'failed' ? 'Failed' : 'Pending'
+    toast.dismiss()
+    toast(`${label} set to ${statusLabel}`, {
+      action: {
+        label: 'Undo',
+        onClick: async () => {
+          // Restore all snapshots locally
+          updateClientLocal(client.id, (c) => ({
+            ...c,
+            client_experiences: c.client_experiences.map((e) => {
+              const snap = prevSnapshot.find((s) => s.id === e.id)
+              if (snap) return { ...e, status: snap.status, completed_at: snap.completed_at }
+              return e
+            }),
+          }))
+          // Re-populate tracker if we cleared it (undoing a revert)
+          if (prevAutoFailedIds.length > 0) {
+            trackAutoFails(experience.id, prevAutoFailedIds)
+          } else {
+            // If we tracked new auto-fails, clear them on undo
+            clearAutoFails(experience.id)
+          }
+          // Persist to DB
+          for (const snap of prevSnapshot) {
+            await updateExperience(snap.id, { status: snap.status, completed_at: snap.completed_at })
+          }
+        },
+      },
     })
   }
 

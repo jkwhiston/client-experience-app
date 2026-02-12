@@ -20,6 +20,8 @@ import {
   formatDueShort,
 } from '@/lib/deadlines'
 import { updateExperience } from '@/lib/queries'
+import { trackAutoFails, clearAutoFails } from '@/lib/auto-fail-tracker'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
   Check,
@@ -99,8 +101,9 @@ export function TimelineNode({
   const isFuture = thisIndex > activeStageIndex
 
   // Is this node the active one showing a live countdown?
-  const isLiveNode = isActiveStage && (derivedStatus === 'pending' || derivedStatus === 'failed')
+  const isLiveNode = isActiveStage && derivedStatus === 'pending'
   const isDone = derivedStatus === 'done' || derivedStatus === 'done_late'
+  const isFailed = derivedStatus === 'failed'
 
   // Timer lines (two-line format for active/late nodes)
   const timerLines = useMemo((): { line1: string; line2: string } | null => {
@@ -134,25 +137,76 @@ export function TimelineNode({
   }, [isFuture, secondsRemaining])
 
   async function handleStatusChange(newStatus: ExperienceStatus) {
-    const updates: Record<string, unknown> = {
-      status: newStatus,
-      completed_at: newStatus === 'yes' ? new Date().toISOString() : null,
+    const newCompletedAt = newStatus === 'yes' ? new Date().toISOString() : null
+
+    // Snapshot previous state for undo
+    const prevSnapshot: { id: string; status: ExperienceStatus; completed_at: string | null }[] = [
+      { id: experience.id, status: experience.status, completed_at: experience.completed_at },
+    ]
+
+    // When marking as done, find earlier pending nodes to auto-fail
+    const thisIdx = EXPERIENCE_TYPES.indexOf(expType)
+    const earlierPending = newStatus === 'yes'
+      ? client.client_experiences.filter((e) => {
+          const eIdx = EXPERIENCE_TYPES.indexOf(e.experience_type)
+          return eIdx < thisIdx && e.status === 'pending'
+        })
+      : []
+
+    // Add earlier pending to snapshot before they are changed
+    for (const ep of earlierPending) {
+      prevSnapshot.push({ id: ep.id, status: ep.status, completed_at: ep.completed_at })
     }
 
+    // Apply changes locally
     updateClientLocal(client.id, (c) => ({
       ...c,
-      client_experiences: c.client_experiences.map((e) =>
-        e.id === experience.id
-          ? {
-              ...e,
-              status: newStatus,
-              completed_at: newStatus === 'yes' ? new Date().toISOString() : null,
-            }
-          : e
-      ),
+      client_experiences: c.client_experiences.map((e) => {
+        if (e.id === experience.id) {
+          return { ...e, status: newStatus, completed_at: newCompletedAt }
+        }
+        if (earlierPending.some((ep) => ep.id === e.id)) {
+          return { ...e, status: 'no' as ExperienceStatus, completed_at: null }
+        }
+        return e
+      }),
     }))
 
-    await updateExperience(experience.id, updates)
+    // Track auto-fails
+    if (earlierPending.length > 0) {
+      trackAutoFails(experience.id, earlierPending.map((ep) => ep.id))
+    }
+
+    // Persist to DB
+    await updateExperience(experience.id, { status: newStatus, completed_at: newCompletedAt })
+    for (const ep of earlierPending) {
+      await updateExperience(ep.id, { status: 'no', completed_at: null })
+    }
+
+    // Show undo toast
+    toast.dismiss()
+    toast(`${label} marked as Done`, {
+      action: {
+        label: 'Undo',
+        onClick: async () => {
+          // Restore all snapshots locally
+          updateClientLocal(client.id, (c) => ({
+            ...c,
+            client_experiences: c.client_experiences.map((e) => {
+              const snap = prevSnapshot.find((s) => s.id === e.id)
+              if (snap) return { ...e, status: snap.status, completed_at: snap.completed_at }
+              return e
+            }),
+          }))
+          // Clear tracker
+          clearAutoFails(experience.id)
+          // Persist to DB
+          for (const snap of prevSnapshot) {
+            await updateExperience(snap.id, { status: snap.status, completed_at: snap.completed_at })
+          }
+        },
+      },
+    })
   }
 
   const hasNotes = experience.notes?.trim().length > 0
@@ -183,9 +237,9 @@ export function TimelineNode({
             <div className="flex items-end justify-center h-9 mb-3">
               <span className={cn(
                 'text-xl font-bold',
-                isLiveNode && derivedStatus === 'failed' ? 'text-red-400' : '',
-                isLiveNode && derivedStatus === 'pending' ? 'text-blue-400' : '',
-                !isLiveNode && 'text-muted-foreground/50'
+                isLiveNode ? 'text-blue-400' : '',
+                isFailed ? 'text-red-400' : '',
+                !isLiveNode && !isFailed && 'text-muted-foreground/50'
               )}>
                 {label}
               </span>
@@ -249,6 +303,22 @@ export function TimelineNode({
                       <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" aria-hidden />
                     )}
                   </div>
+                ) : isFailed ? (
+                  /* ===== FAILED: Small circle with red X ===== */
+                  <div className={cn(
+                    'relative rounded-full flex items-center justify-center transition-all duration-200',
+                    'h-11 w-11',
+                    'border-2 border-red-500 bg-card group-hover:ring-2 group-hover:ring-red-500/30 group-hover:shadow-[0_0_12px_rgba(239,68,68,0.25)]'
+                  )}>
+                    <svg className="h-6 w-6 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+
+                    {hasNotes && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" aria-hidden />
+                    )}
+                  </div>
                 ) : (
                   /* ===== FUTURE: Small circle with countdown ===== */
                   <div className={cn(
@@ -284,6 +354,11 @@ export function TimelineNode({
                       derivedStatus === 'done' ? 'text-green-500' : 'text-amber-500'
                     )}>
                       {completedString}
+                    </span>
+                  )}
+                  {isFailed && (
+                    <span className="text-xs font-medium block text-red-500">
+                      Failed
                     </span>
                   )}
                   {isFuture && (
