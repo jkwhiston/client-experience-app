@@ -100,10 +100,14 @@ export function TimelineNode({
   const thisIndex = EXPERIENCE_TYPES.indexOf(expType)
   const isFuture = thisIndex > activeStageIndex
 
+  // Distinguish overdue-pending from explicitly-failed
+  const isOverdue = derivedStatus === 'failed' && experience.status === 'pending'
+  const isExplicitlyFailed = derivedStatus === 'failed' && experience.status === 'no'
+
   // Is this node the active one showing a live countdown?
-  const isLiveNode = isActiveStage && derivedStatus === 'pending'
+  const isLiveNode = isActiveStage && (derivedStatus === 'pending' || isOverdue)
   const isDone = derivedStatus === 'done' || derivedStatus === 'done_late'
-  const isFailed = derivedStatus === 'failed'
+  const isFailed = isExplicitlyFailed
 
   // Timer lines (two-line format for active/late nodes)
   const timerLines = useMemo((): { line1: string; line2: string } | null => {
@@ -237,7 +241,8 @@ export function TimelineNode({
             <div className="flex items-end justify-center h-9 mb-3">
               <span className={cn(
                 'text-xl font-bold',
-                isLiveNode ? 'text-blue-400' : '',
+                isLiveNode && isOverdue ? 'text-red-400' : '',
+                isLiveNode && !isOverdue ? 'text-blue-400' : '',
                 isFailed ? 'text-red-400' : '',
                 !isLiveNode && !isFailed && 'text-muted-foreground/50'
               )}>
@@ -249,19 +254,27 @@ export function TimelineNode({
             <div className="flex-1 flex items-center justify-center">
               <div className="relative flex flex-col items-center">
                 {isLiveNode ? (
-                  /* ===== ACTIVE: Large circle (pending countdown) ===== */
+                  /* ===== ACTIVE / OVERDUE: Large circle with countdown ===== */
                   <div className={cn(
                     'relative rounded-full flex flex-col items-center justify-center transition-all duration-200',
                     'h-[110px] w-[110px] px-2 text-center overflow-hidden',
-                    'border-2 border-blue-500 bg-card animate-pulse-blue group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
+                    isOverdue
+                      ? 'border-2 border-red-500 bg-card animate-pulse-red group-hover:ring-[5px] group-hover:ring-red-500/50 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.35)]'
+                      : 'border-2 border-blue-500 bg-card animate-pulse-blue group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
                   )}>
                     {/* Timer (two lines) */}
                     {timerLines && (
                       <div className="flex flex-col items-center leading-tight">
-                        <span className="text-sm font-mono font-bold text-blue-500">
+                        <span className={cn(
+                          'text-sm font-mono font-bold',
+                          isOverdue ? 'text-red-500' : 'text-blue-500'
+                        )}>
                           {timerLines.line1}
                         </span>
-                        <span className="text-sm font-mono font-bold text-blue-500">
+                        <span className={cn(
+                          'text-sm font-mono font-bold',
+                          isOverdue ? 'text-red-500' : 'text-blue-500'
+                        )}>
                           {timerLines.line2}
                         </span>
                       </div>
