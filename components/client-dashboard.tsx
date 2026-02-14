@@ -16,6 +16,7 @@ import {
   getDueAtEffective,
   getNowEffective,
   getDerivedStatus,
+  getNextActiveDeadline,
 } from '@/lib/deadlines'
 import { fetchClients } from '@/lib/queries'
 import { ChevronDown, ChevronUp } from 'lucide-react'
@@ -156,6 +157,27 @@ export function ClientDashboard() {
       })
     }
 
+    // Filter by active deadline when using deadline sort options
+    if (
+      sortOption === 'deadline_hour24' ||
+      sortOption === 'deadline_day14' ||
+      sortOption === 'deadline_day30'
+    ) {
+      const expType = sortOption.replace('deadline_', '') as ExperienceType
+      filtered = filtered.filter((client) => {
+        const exp = client.client_experiences.find(
+          (e) => e.experience_type === expType
+        )
+        // Only keep clients whose experience for this type is still active (DB pending)
+        return exp != null && exp.status === 'pending'
+      })
+    } else if (sortOption === 'next_active_deadline') {
+      // Only keep clients that have at least one active deadline
+      filtered = filtered.filter(
+        (client) => getNextActiveDeadline(client) !== null
+      )
+    }
+
     // Sort
     filtered.sort((a, b) => {
       switch (sortOption) {
@@ -176,6 +198,12 @@ export function ClientDashboard() {
             ? getDueAtEffective(getEffectiveDueDate(expB, b.signed_on_date), b.paused_total_seconds)
             : new Date(0)
           return dueA.getTime() - dueB.getTime()
+        }
+        case 'next_active_deadline': {
+          const dueA = getNextActiveDeadline(a)
+          const dueB = getNextActiveDeadline(b)
+          // Both guaranteed non-null after the filter above
+          return (dueA?.getTime() ?? 0) - (dueB?.getTime() ?? 0)
         }
         default:
           return 0
@@ -288,6 +316,7 @@ export function ClientDashboard() {
           clients={filteredClients}
           focusTab={focusTab}
           activeTab={activeTab}
+          sortOption={sortOption}
           now={now}
           loading={loading}
           updateClientLocal={updateClientLocal}

@@ -11,6 +11,7 @@ export type SortOption =
   | 'deadline_hour24'
   | 'deadline_day14'
   | 'deadline_day30'
+  | 'next_active_deadline'
 
 export interface Client {
   id: string

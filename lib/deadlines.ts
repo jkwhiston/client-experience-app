@@ -144,6 +144,32 @@ export function getActiveStage(
 }
 
 /**
+ * Get the nearest active deadline for a client across all experience types.
+ * "Active" means the DB status is 'pending' (includes overdue-but-not-resolved).
+ * Returns the effective due date of the nearest active deadline, or null if none.
+ */
+export function getNextActiveDeadline(
+  client: ClientWithExperiences,
+): Date | null {
+  let nearest: Date | null = null
+
+  for (const expType of EXPERIENCE_TYPES) {
+    const exp = client.client_experiences.find((e) => e.experience_type === expType)
+    if (!exp) continue
+    if (exp.status !== 'pending') continue
+
+    const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+    const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+
+    if (nearest === null || dueAtEff.getTime() < nearest.getTime()) {
+      nearest = dueAtEff
+    }
+  }
+
+  return nearest
+}
+
+/**
  * Format a duration in seconds to a human-readable string.
  * e.g. "2d 5h 12m 34s"
  */

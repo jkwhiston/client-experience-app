@@ -1,6 +1,6 @@
 # Developer Documentation — Client Experience Tracking App
 
-> Last updated: February 12, 2026
+> Last updated: February 13, 2026
 
 ## Overview
 
@@ -95,6 +95,7 @@ A Next.js web app for tracking three time-based client milestones: **24-Hour**, 
 | experience_type  | 'hour24' \| 'day14' \| 'day30' |                               |
 | status           | 'pending' \| 'yes' \| 'no'   | DB-level status                |
 | completed_at     | timestamptz                   | Nullable; set on completion    |
+| custom_due_at    | timestamptz                   | Nullable; overrides default computed deadline |
 | notes            | text                          | Markdown content               |
 | todos            | jsonb                         | Default `'[]'`; array of `{ id, text, done }` |
 | created_at       | timestamptz                   |                                |
@@ -139,6 +140,7 @@ All deadline logic is centralized here. Key concepts:
 - **`getDueAtEffective(dueAt, pausedTotalSeconds)`**: Adjusts the deadline forward by the total paused seconds.
 - **`getNowEffective(client, now)`**: If the client is paused, freezes "now" at the pause start time.
 - **`getActiveStage(client, now)`**: Returns the first experience type that is `pending` or `failed` (the current active milestone).
+- **`getNextActiveDeadline(client)`**: Returns the nearest effective deadline `Date` across all experience types where `exp.status === 'pending'` (DB status, not derived). Returns `null` if no active deadlines remain. Used by the "Next Active Deadline" sort option.
 
 #### Formatting Functions
 
@@ -250,7 +252,7 @@ Status changes for completed items are done through the Detail Modal's dropdown.
 - **Optimistic updates**: `updateClientLocal` callback passed down the tree. Updates local state immediately, then fires async Supabase mutation (`updateExperience`, `updateClient`).
 - **Live countdowns**: The dashboard passes a `now` Date prop that ticks every second, causing timer re-renders.
 - **Focus mode**: `FocusTabs` control which experience type is focused. When focused, non-matching nodes are dimmed via `isFocusMode` + `isFocused` props.
-- **Filters/Sort**: Managed in `ClientDashboard`, applied before rendering `ClientList`.
+- **Filters/Sort**: Managed in `ClientDashboard`, applied before rendering `ClientList`. Deadline sort options (`deadline_hour24`, `deadline_day14`, `deadline_day30`, `next_active_deadline`) both filter and sort — they remove clients with no active (DB `pending`) deadline for that experience type, then sort by deadline nearest-first. `sortOption` is passed to `ClientList` so it can display context-aware empty states.
 
 ---
 
@@ -369,6 +371,14 @@ Required in `.env.local`:
    - Debounced autosave (500ms) via `updateExperience` with optimistic local updates.
 
 5. **Modal border styling** (`components/ui/dialog.tsx`) — Border changed from `border` (1px, default color) to `border-[1.5px] border-muted-foreground/35` for better visibility against the dark background.
+
+### Active Deadline Filtering & Sort (Feb 13, 2026)
+
+1. **Deadline sort options now filter to active-only experiences** (`components/client-dashboard.tsx`) — The sort options `deadline_hour24`, `deadline_day14`, and `deadline_day30` now filter clients to only those whose experience for that type has DB `status === 'pending'`. This removes completed (`yes`) and explicitly failed (`no`) experiences from the list, but keeps overdue deadlines that are still active (DB `pending` but past due, which derive as `failed`). The remaining clients are sorted by deadline nearest-first.
+
+2. **New "Next Active Deadline" sort option** (`lib/types.ts`, `lib/deadlines.ts`, `components/controls-bar.tsx`, `components/client-dashboard.tsx`) — Added `next_active_deadline` to the `SortOption` type. New `getNextActiveDeadline(client)` helper in `deadlines.ts` finds the nearest active deadline across all three experience types. When selected, filters to clients with at least one active deadline and sorts by the nearest one, regardless of experience type.
+
+3. **Context-aware "All Complete" empty state** (`components/client-list.tsx`) — When a deadline sort filter results in zero clients, instead of the generic "No clients found" message, a prominent green indicator is shown with a large checkmark icon, bold heading ("All 24-Hour Experiences Complete", etc.), and subtitle ("No active 24-hour deadlines remaining"). Uses a dashed emerald border card with tinted background so it's immediately recognizable as a "done" state. `ClientList` now receives the `sortOption` prop to determine which empty message to display.
 
 ---
 
