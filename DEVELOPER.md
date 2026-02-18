@@ -37,14 +37,14 @@ A Next.js web app for tracking three time-based client milestones: **24-Hour**, 
 │   ├── add-client-dialog.tsx    # Dialog to add a new client
 │   ├── calendar-day-cell.tsx    # Calendar day cell with status-colored deadline chips
 │   ├── calendar-modal.tsx       # Calendar modal: monthly grid, navigation, detail modal integration
-    │   ├── client-dashboard.tsx     # Top-level dashboard (state, filters, sorting, focus tabs)
+    │   ├── client-dashboard.tsx     # Top-level dashboard (state, filters, sorting)
     │   ├── client-list.tsx          # Renders list of ClientRow components
     │   ├── client-row.tsx           # Single client row: info + timeline stepper + delete
-    │   ├── controls-bar.tsx         # Search, filters, sort dropdown, add/import/export, calendar button
+    │   ├── controls-bar.tsx         # Search, filter dropdown, sort dropdown, Calendar View button, Actions dropdown (add/import)
     │   ├── import-clients-dialog.tsx # JSON import dialog with schema copy + validation
 │   ├── dashboard-header.tsx     # Header: title, Active/Archived tabs, theme toggle, sign out
 │   ├── experience-detail-modal.tsx  # Detail modal: countdown hero, editable sign-on date, status dropdown
-│   ├── focus-tabs.tsx           # Focus tabs (Overview, 24-Hour, 14-Day, 30-Day)
+│   ├── focus-tabs.tsx           # (unused) Focus tabs — removed from UI, file retained
 │   ├── notes-modal.tsx          # Markdown notes editor with auto-save
 │   ├── summary-row.tsx          # Summary cards showing counts per experience type
 │   ├── theme-provider.tsx       # next-themes wrapper
@@ -162,9 +162,8 @@ All deadline logic is centralized here. Key concepts:
 app/page.tsx
   └── ClientDashboard
         ├── DashboardHeader (Active/Archived tabs, theme toggle, sign out)
-        ├── ControlsBar (search, filters, sort, add client, calendar button)
+        ├── ControlsBar (search, filter dropdown, sort dropdown, Calendar View, Actions dropdown)
         ├── SummaryRow (aggregate counts)
-        ├── FocusTabs (Overview / 24-Hour / 14-Day / 30-Day)
         ├── ClientList
         │     └── ClientRow (one per client)
         │           ├── [Client info: name, date, pause/archive controls]
@@ -260,8 +259,8 @@ Status changes for completed items are done through the Detail Modal's dropdown.
 - **Client data**: Fetched via `fetchClients()` from Supabase, stored in `ClientDashboard` state.
 - **Optimistic updates**: `updateClientLocal` callback passed down the tree. Updates local state immediately, then fires async Supabase mutation (`updateExperience`, `updateClient`).
 - **Live countdowns**: The dashboard passes a `now` Date prop that ticks every second, causing timer re-renders.
-- **Focus mode**: `FocusTabs` control which experience type is focused. When focused, non-matching nodes are dimmed via `isFocusMode` + `isFocused` props.
-- **Filters/Sort**: Managed in `ClientDashboard`, applied before rendering `ClientList`. Deadline sort options (`deadline_hour24`, `deadline_day14`, `deadline_day30`, `next_active_deadline`) both filter and sort — they remove clients with no active (DB `pending`) deadline for that experience type, then sort by deadline nearest-first. `sortOption` is passed to `ClientList` so it can display context-aware empty states.
+- **Focus mode** (removed): `FocusTabs` were removed from the UI. `focusTab` is now a constant `'overview'` in `ClientDashboard`. The `isFocusMode` / `isFocused` props still exist on child components but `isFocusMode` is always `false`.
+- **Filters/Sort**: Managed in `ClientDashboard`, applied before rendering `ClientList`. Status filter is a `Select` dropdown in `ControlsBar` (All, Pending, Done, Late, Failed). Deadline sort options (`deadline_hour24`, `deadline_day14`, `deadline_day30`, `next_active_deadline`) both filter and sort — they remove clients with no active (DB `pending`) deadline for that experience type, then sort by deadline nearest-first. `sortOption` is passed to `ClientList` so it can display context-aware empty states.
 
 ---
 
@@ -411,7 +410,19 @@ Required in `.env.local`:
 
 6. **Outside-month cell styling** (`app/globals.css`, `components/calendar-day-cell.tsx`) — Days from adjacent months use a `.calendar-outside-month` CSS class with a dark background overlay (`rgba(6,10,20,0.75)`) and an inset box-shadow (`inset 0 0 30px 14px rgba(0,0,0,0.85)`) that darkens from the edges inward, giving a recessed/sunken look clearly distinct from both weekday and weekend cells.
 
-7. **Dashboard wiring** (`components/client-dashboard.tsx`, `components/controls-bar.tsx`) — `calendarOpen` state in `ClientDashboard` controls the modal. `ControlsBar` receives an `onOpenCalendar` prop and renders a `CalendarDays` icon button next to "Import JSON" and "Add Client".
+7. **Dashboard wiring** (`components/client-dashboard.tsx`, `components/controls-bar.tsx`) — `calendarOpen` state in `ClientDashboard` controls the modal. `ControlsBar` receives an `onOpenCalendar` prop and renders a prominent "Calendar View" button (primary variant).
+
+### Controls Bar Cleanup (Feb 18, 2026)
+
+1. **Removed Focus Tabs** (`components/client-dashboard.tsx`) — `FocusTabs` component is no longer rendered. `focusTab` is now a constant `'overview'` instead of state. `handleFocusTabChange` removed. `handleSummaryClick` no longer sets `focusTab` (still sets status filter and sort). The `focus-tabs.tsx` file is retained but unused.
+
+2. **Status filter dropdown** (`components/controls-bar.tsx`) — Replaced the 5 inline `FilterChip` buttons (All, Pending, Done, Late, Failed) with a compact `Select` dropdown (`w-[130px]`), matching the sort dropdown's style. Removed the `FilterChip` helper component.
+
+3. **Actions dropdown** (`components/controls-bar.tsx`) — Combined "Add Client" and "Import JSON" into a single `DropdownMenu` with a trigger button labeled "Actions" (with `MoreHorizontal` icon). Uses the existing `DropdownMenu` / `DropdownMenuItem` from `components/ui/dropdown-menu.tsx`.
+
+4. **Prominent Calendar View button** (`components/controls-bar.tsx`) — Changed from `variant="outline"` to `variant="default"` (primary/filled) and renamed label from "Calendar" to "Calendar View" so it stands out from the other controls.
+
+5. **Removed `focusTab` prop from ControlsBar** (`components/controls-bar.tsx`) — The `FocusTab` type import and `focusTab` prop were removed from the `ControlsBarProps` interface since the component never used it internally.
 
 ---
 
