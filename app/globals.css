@@ -143,3 +143,15 @@
 .group:hover .animate-pulse-red {
   animation: none;
 }
+
+@keyframes today-cell-pulse {
+  0%, 100% { background-color: transparent; }
+  50%      { background-color: rgba(59,130,246,0.12); }
+}
+
+.animate-today-pulse { animation: today-cell-pulse 4s ease-in-out infinite; }
+
+.calendar-outside-month {
+  background-color: rgba(0,0,0,0.5);
+  box-shadow: inset 0 0 30px 14px rgba(0,0,0,0.85);
+}

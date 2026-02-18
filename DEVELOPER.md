@@ -1,6 +1,6 @@
 # Developer Documentation — Client Experience Tracking App
 
-> Last updated: February 13, 2026
+> Last updated: February 18, 2026
 
 ## Overview
 
@@ -35,10 +35,12 @@ A Next.js web app for tracking three time-based client milestones: **24-Hour**, 
 │   └── page.tsx                 # Home — renders ClientDashboard
 ├── components/
 │   ├── add-client-dialog.tsx    # Dialog to add a new client
+│   ├── calendar-day-cell.tsx    # Calendar day cell with status-colored deadline chips
+│   ├── calendar-modal.tsx       # Calendar modal: monthly grid, navigation, detail modal integration
     │   ├── client-dashboard.tsx     # Top-level dashboard (state, filters, sorting, focus tabs)
     │   ├── client-list.tsx          # Renders list of ClientRow components
     │   ├── client-row.tsx           # Single client row: info + timeline stepper + delete
-    │   ├── controls-bar.tsx         # Search, filters, sort dropdown, add/import/export
+    │   ├── controls-bar.tsx         # Search, filters, sort dropdown, add/import/export, calendar button
     │   ├── import-clients-dialog.tsx # JSON import dialog with schema copy + validation
 │   ├── dashboard-header.tsx     # Header: title, Active/Archived tabs, theme toggle, sign out
 │   ├── experience-detail-modal.tsx  # Detail modal: countdown hero, editable sign-on date, status dropdown
@@ -160,18 +162,25 @@ All deadline logic is centralized here. Key concepts:
 app/page.tsx
   └── ClientDashboard
         ├── DashboardHeader (Active/Archived tabs, theme toggle, sign out)
-        ├── ControlsBar (search, filters, sort, add client)
+        ├── ControlsBar (search, filters, sort, add client, calendar button)
         ├── SummaryRow (aggregate counts)
         ├── FocusTabs (Overview / 24-Hour / 14-Day / 30-Day)
-        └── ClientList
-              └── ClientRow (one per client)
-                    ├── [Client info: name, date, pause/archive controls]
-                    ├── [Timeline track: dotted bg line + colored progress overlay]
-                    └── TimelineNode × 3 (one per experience type)
-                          ├── [Circle with status indicator]
-                          ├── [Hover actions: Notes icon, Mark done]
-                          ├── NotesModal (opened via Notes icon)
-                          └── ExperienceDetailModal (opened via circle click)
+        ├── ClientList
+        │     └── ClientRow (one per client)
+        │           ├── [Client info: name, date, pause/archive controls]
+        │           ├── [Timeline track: dotted bg line + colored progress overlay]
+        │           └── TimelineNode × 3 (one per experience type)
+        │                 ├── [Circle with status indicator]
+        │                 ├── [Hover actions: Notes icon, Mark done]
+        │                 ├── NotesModal (opened via Notes icon)
+        │                 └── ExperienceDetailModal (opened via circle click)
+        └── CalendarModal (opened via Calendar button in ControlsBar)
+              ├── [Header: month/year, prev/next/today nav, show-completed toggle, close]
+              └── CalendarDayCell × 28-42 (7-column grid, dynamic row count)
+                    ├── [Day number with today highlight pulse]
+                    └── [Deadline chips: clickable, status-colored]
+                          ├── ExperienceDetailModal (reused, opened on chip click)
+                          └── NotesModal (reused, opened from detail modal)
 ```
 
 ### Timeline Visualization (`client-row.tsx` + `timeline-node.tsx`)
@@ -380,6 +389,30 @@ Required in `.env.local`:
 
 3. **Context-aware "All Complete" empty state** (`components/client-list.tsx`) — When a deadline sort filter results in zero clients, instead of the generic "No clients found" message, a prominent green indicator is shown with a large checkmark icon, bold heading ("All 24-Hour Experiences Complete", etc.), and subtitle ("No active 24-hour deadlines remaining"). Uses a dashed emerald border card with tinted background so it's immediately recognizable as a "done" state. `ClientList` now receives the `sortOption` prop to determine which empty message to display.
 
+### Calendar Modal Feature (Feb 18, 2026)
+
+1. **Calendar modal** (`components/calendar-modal.tsx`, `components/calendar-day-cell.tsx`) — New full-screen modal (max-w-6xl, h-[85vh]) accessible via a "Calendar" button in the controls bar. Displays a monthly grid of all experience deadlines. Key features:
+   - **Monthly navigation**: Prev/next month buttons and a "Today" button to jump to the current month.
+   - **Show/hide completed**: Toggle button (defaults to hidden) filters out `done` and `done_late` experiences.
+   - **Data transformation**: Iterates all non-archived clients, computes effective deadlines via `getEffectiveDueDate` + `getDueAtEffective`, derives status via `getDerivedStatus`, and builds a `Map<string, CalendarEvent[]>` keyed by `YYYY-MM-DD` date strings.
+   - **Detail modal integration**: Clicking any deadline chip opens the existing `ExperienceDetailModal` (and `NotesModal` via its Notes button). Edits propagate back via `updateClientLocal` in real-time.
+   - **Future-proofed**: Data transformation works off generic `ClientExperience[]` arrays, not hard-coded to the three current types, so adding new experience types later requires no calendar changes.
+
+2. **Calendar day cell** (`components/calendar-day-cell.tsx`) — Each cell renders:
+   - Day number with a `bg-primary` circle highlight for today.
+   - Scrollable list of status-colored deadline chips. Each chip is a flex row with a `shrink-0` experience type badge ("24h", "14d", "30d") at the leading edge, followed by a truncating client name. This ensures the type is always visible regardless of name length.
+   - Color scheme matches the dashboard: blue (pending), red (failed/past due), green (done), amber (done late).
+
+3. **Dynamic grid rows** (`components/calendar-modal.tsx`) — The grid computes `numRows = calendarDays.length / 7` (4, 5, or 6 depending on month) and sets `gridTemplateRows: repeat(N, 1fr)` so rows stretch evenly to fill the modal. This eliminates blank space at the bottom for short months like February.
+
+4. **Weekend column shading** (`components/calendar-modal.tsx`, `components/calendar-day-cell.tsx`) — Sunday and Saturday columns have a slightly lighter background (`bg-muted/25` on day cells, `bg-muted/60` on headers) compared to weekday columns, making weekends visually distinguishable.
+
+5. **Today cell pulse animation** (`app/globals.css`, `components/calendar-day-cell.tsx`) — Today's entire cell has a slow breathing pulse (`today-cell-pulse` keyframe, 4s cycle) that fades between fully transparent and a subtle blue tint (`rgba(59,130,246,0.12)`), making it stand out at a glance.
+
+6. **Outside-month cell styling** (`app/globals.css`, `components/calendar-day-cell.tsx`) — Days from adjacent months use a `.calendar-outside-month` CSS class with a dark background overlay (`rgba(6,10,20,0.75)`) and an inset box-shadow (`inset 0 0 30px 14px rgba(0,0,0,0.85)`) that darkens from the edges inward, giving a recessed/sunken look clearly distinct from both weekday and weekend cells.
+
+7. **Dashboard wiring** (`components/client-dashboard.tsx`, `components/controls-bar.tsx`) — `calendarOpen` state in `ClientDashboard` controls the modal. `ControlsBar` receives an `onOpenCalendar` prop and renders a `CalendarDays` icon button next to "Import JSON" and "Add Client".
+
 ---
 
 ## Running Locally
@@ -389,7 +422,7 @@ npm install
 npm run dev
 ```
 
-The app runs on `http://localhost:3002` (configured in `package.json` via `--port 3002`). Requires Supabase credentials in `.env.local`.
+The app runs on `http://localhost:3000` (configured in `package.json` via `--port 3000`). Requires Supabase credentials in `.env.local`.
 
 ---
 

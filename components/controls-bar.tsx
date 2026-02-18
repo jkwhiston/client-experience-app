@@ -4,7 +4,6 @@ import { useState } from 'react'
 import type {
   StatusFilter,
   SortOption,
-  FocusTab,
   ActiveTab,
   ClientWithExperiences,
 } from '@/lib/types'
@@ -17,7 +16,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Search, Plus, Download, Upload } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Search, Plus, Download, Upload, CalendarDays, MoreHorizontal } from 'lucide-react'
 import { AddClientDialog } from './add-client-dialog'
 import { ImportClientsDialog } from './import-clients-dialog'
 
@@ -28,9 +33,9 @@ interface ControlsBarProps {
   onStatusFilterChange: (f: StatusFilter) => void
   sortOption: SortOption
   onSortChange: (s: SortOption) => void
-  focusTab: FocusTab
   activeTab: ActiveTab
   onAddClient: (client: ClientWithExperiences) => void
+  onOpenCalendar?: () => void
 }
 
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
@@ -57,9 +62,9 @@ export function ControlsBar({
   onStatusFilterChange,
   sortOption,
   onSortChange,
-  focusTab,
   activeTab,
   onAddClient,
+  onOpenCalendar,
 }: ControlsBarProps) {
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
@@ -80,34 +85,23 @@ export function ControlsBar({
           />
         </div>
 
-        {/* Filter chips */}
-        <div className="flex items-center gap-1">
-          {isArchived ? (
-            <>
-              <FilterChip
-                label="All"
-                active={statusFilter === 'all'}
-                onClick={() => onStatusFilterChange('all')}
-              />
-              <FilterChip
-                label="Archived"
-                active={statusFilter !== 'all'}
-                onClick={() => onStatusFilterChange('all')}
-              />
-            </>
-          ) : (
-            STATUS_FILTERS.map((f) => (
-              <FilterChip
-                key={f.value}
-                label={f.label}
-                active={statusFilter === f.value}
-                onClick={() => onStatusFilterChange(f.value)}
-              />
-            ))
-          )}
-        </div>
+        {/* Status filter dropdown */}
+        {!isArchived && (
+          <Select value={statusFilter} onValueChange={(v) => onStatusFilterChange(v as StatusFilter)}>
+            <SelectTrigger className="w-[130px] h-9 text-xs">
+              <SelectValue placeholder="Filter..." />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_FILTERS.map((f) => (
+                <SelectItem key={f.value} value={f.value} className="text-xs">
+                  {f.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
-        {/* Sort + Add/Export */}
+        {/* Sort + actions */}
         <div className="flex items-center gap-2 ml-auto">
           {!isArchived && (
             <Select value={sortOption} onValueChange={(v) => onSortChange(v as SortOption)}>
@@ -131,14 +125,29 @@ export function ControlsBar({
             </Button>
           ) : (
             <>
-              <Button variant="outline" size="sm" className="text-xs" onClick={() => setImportDialogOpen(true)}>
-                <Upload className="h-3.5 w-3.5 mr-1.5" />
-                Import JSON
+              <Button size="sm" className="text-xs" onClick={onOpenCalendar}>
+                <CalendarDays className="h-3.5 w-3.5 mr-1.5" />
+                Calendar View
               </Button>
-              <Button size="sm" className="text-xs" onClick={() => setAddDialogOpen(true)}>
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
-                Add Client
-              </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="text-xs">
+                    <MoreHorizontal className="h-3.5 w-3.5 mr-1.5" />
+                    Actions
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setAddDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Client
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import JSON
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
         </div>
@@ -159,30 +168,7 @@ export function ControlsBar({
   )
 }
 
-function FilterChip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <Button
-      variant={active ? 'default' : 'outline'}
-      size="sm"
-      className="h-7 text-xs px-3"
-      onClick={onClick}
-    >
-      {label}
-    </Button>
-  )
-}
-
 function handleExportCSV() {
-  // This is a placeholder — the actual implementation needs client data.
-  // We'll trigger a custom event that the dashboard can listen to.
   const event = new CustomEvent('export-csv')
   window.dispatchEvent(event)
 }

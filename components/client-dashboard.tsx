@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import type {
   ClientWithExperiences,
   ActiveTab,
-  FocusTab,
   StatusFilter,
   SortOption,
   ExperienceType,
@@ -23,14 +22,14 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import { DashboardHeader } from './dashboard-header'
 import { SummaryRow } from './summary-row'
 import { ControlsBar } from './controls-bar'
-import { FocusTabs } from './focus-tabs'
 import { ClientList } from './client-list'
+import { CalendarModal } from './calendar-modal'
 
 export function ClientDashboard() {
   const [clients, setClients] = useState<ClientWithExperiences[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<ActiveTab>('active')
-  const [focusTab, setFocusTab] = useState<FocusTab>('overview')
+  const focusTab = 'overview' as const
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sortOption, setSortOption] = useState<SortOption>(() => {
     if (typeof window !== 'undefined') {
@@ -40,6 +39,7 @@ export function ClientDashboard() {
   })
   const [searchQuery, setSearchQuery] = useState('')
   const [summaryOpen, setSummaryOpen] = useState(true)
+  const [calendarOpen, setCalendarOpen] = useState(false)
   const [now, setNow] = useState(new Date())
 
   // Persist sort option to localStorage
@@ -213,18 +213,9 @@ export function ClientDashboard() {
     return filtered
   }, [clients, activeTab, searchQuery, statusFilter, focusTab, sortOption, getExpDerivedStatus])
 
-  // When switching to a focus tab, auto-set sort to that deadline
-  const handleFocusTabChange = useCallback((tab: FocusTab) => {
-    setFocusTab(tab)
-    if (tab !== 'overview') {
-      setSortOption(`deadline_${tab}` as SortOption)
-    }
-  }, [])
-
   // Handle summary count click
   const handleSummaryClick = useCallback(
     (expType: ExperienceType, filter: StatusFilter) => {
-      setFocusTab(expType as FocusTab)
       setStatusFilter(filter)
       setSortOption(`deadline_${expType}` as SortOption)
     },
@@ -303,14 +294,10 @@ export function ClientDashboard() {
           onStatusFilterChange={setStatusFilter}
           sortOption={sortOption}
           onSortChange={setSortOption}
-          focusTab={focusTab}
           activeTab={activeTab}
           onAddClient={addClientLocal}
+          onOpenCalendar={() => setCalendarOpen(true)}
         />
-
-        {activeTab === 'active' && (
-          <FocusTabs focusTab={focusTab} onFocusTabChange={handleFocusTabChange} />
-        )}
 
         <ClientList
           clients={filteredClients}
@@ -323,6 +310,14 @@ export function ClientDashboard() {
           removeClientLocal={removeClientLocal}
         />
       </div>
+
+      <CalendarModal
+        open={calendarOpen}
+        onOpenChange={setCalendarOpen}
+        clients={clients}
+        now={now}
+        updateClientLocal={updateClientLocal}
+      />
     </div>
   )
 }
