@@ -1,6 +1,6 @@
 # Developer Documentation — Client Experience Tracking App
 
-> Last updated: February 19, 2026 (evening)
+> Last updated: February 19, 2026 (night)
 
 ## Overview
 
@@ -52,7 +52,7 @@ The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previou
 │   ├── client-row.tsx             # Single client row: info + timeline stepper + delete
 │   ├── controls-bar.tsx           # Search, filter dropdown, sort dropdown, Calendar View, Actions dropdown
 │   ├── import-clients-dialog.tsx  # JSON import dialog with schema copy + validation
-│   ├── dashboard-header.tsx       # Header: title, Onboarding/Lifecycle/Archived tabs, theme toggle, sign out
+│   ├── dashboard-header.tsx       # Header: title, Onboarding/Lifecycle tabs, dropdown menu (Archived, theme toggle, sign out)
 │   ├── experience-detail-modal.tsx # Detail modal: countdown hero, editable sign-on date, status dropdown
 │   ├── focus-tabs.tsx             # (unused) Focus tabs — removed from UI, file retained
 │   ├── monthly-history-modal.tsx  # Modal listing all experiences: 3 onboarding + 17 monthly (months 2–18)
@@ -193,7 +193,7 @@ All deadline logic is centralized here. Key concepts:
 - **`getNextActiveDeadline(client)`**: Returns the nearest effective deadline `Date` across initial experience types where `exp.status === 'pending'`. Used by the "Next Active Deadline" sort option.
 - **`getNextMonthlyDeadline(client)`**: Same as above but for monthly experiences. Used by the "Next Monthly Deadline" sort option.
 - **`getMonthlyExperiences(client)`**: Returns all monthly experiences for a client sorted by `month_number` ascending.
-- **`getVisibleMonthlyExperiences(client, now)`**: Sliding window — returns the 3 monthly experiences to display in the Lifecycle tab. Logic: (1) find first pending/failed monthly experience, show it + next 2; (2) if all complete, show last 3; (3) if too new, show months 2, 3, 4.
+- **`getVisibleMonthlyExperiences(client, now)`**: Fixed-group window — returns the 3 monthly experiences to display in the Lifecycle tab. Monthly experiences are chunked into fixed groups of 3 in `month_number` order ([2,3,4], [5,6,7], [8,9,10], ...). Returns the first group that still has at least one pending/failed node. Completing a node within a group keeps it visible (shown as complete); the window only advances to the next group when all 3 nodes in the current group are done. If all groups are complete, returns the last group.
 
 #### Formatting Functions
 
@@ -212,7 +212,7 @@ All deadline logic is centralized here. Key concepts:
 ```
 app/page.tsx
   └── ClientDashboard
-        ├── DashboardHeader (Onboarding/Lifecycle/Archived tabs, theme toggle, sign out)
+        ├── DashboardHeader (Onboarding/Lifecycle tabs, dropdown menu: Archived, theme toggle, sign out)
         ├── SummaryRow (aggregate counts — Onboarding tab only)
         ├── OngoingSummaryRow (Up to Date / Due Soon / Overdue / Completion Rate — Lifecycle tab only)
         ├── ControlsBar (search, filter dropdown, sort dropdown, Calendar View, Actions dropdown)
@@ -639,6 +639,16 @@ Added the ability to "flag" a client row with a color, making it visually stand 
      rgba(R,G,B,0.14) 100%)
    ```
    The non-uniform opacity stops create a subtle undulating/wave effect across the full row width. The left `w-1` accent strip is also tinted with the flag color at 50% opacity.
+
+### Monthly Node Fixed-Group Windowing (Feb 19, 2026)
+
+1. **Fixed-group window replaces sliding window** (`lib/deadlines.ts`) — `getVisibleMonthlyExperiences()` previously anchored a 3-node window to the first pending/failed monthly experience. When a node was completed, it immediately disappeared as the window slid forward. Now, monthly experiences are chunked into fixed groups of 3 in `month_number` order: [2,3,4], [5,6,7], [8,9,10], [11,12,13], [14,15,16], [17,18]. The function returns the first group containing at least one pending/failed node. Completing a node within a group keeps it visible as complete until all 3 are done, then the window advances to the next group.
+
+### Header Restructure: Dropdown Menu & Color-Coded Tabs (Feb 19, 2026)
+
+1. **Color-coded inactive tab buttons** (`components/dashboard-header.tsx`) — Inactive tab buttons now have distinct muted background colors: Onboarding is soft green (`bg-green-100 text-green-700` / dark: `bg-green-900/40 text-green-300`), Lifecycle is soft blue (`bg-blue-100 text-blue-700` / dark: `bg-blue-900/40 text-blue-300`). Active tab remains the default solid style (unchanged).
+
+2. **Header dropdown consolidation** (`components/dashboard-header.tsx`) — The Archived tab button, standalone `ThemeToggle`, and sign-out icon button were removed from the top-level header. They are now consolidated into a single `DropdownMenu` triggered by a `MoreHorizontal` (three dots) icon button. The dropdown contains: "Archived" menu item (with `Archive` icon, highlighted with `bg-accent` when active), a theme toggle item (shows "Dark mode" / "Light mode" with Sun/Moon icon using `useTheme` from `next-themes` directly), a separator, and "Sign out" (with `LogOut` icon). The `ThemeToggle` component import was removed; `useTheme` is now called directly in `DashboardHeader`. Only the Onboarding and Lifecycle buttons remain in the visible tab pill group.
 
 ### Calendar Today Pulse Color Change (Feb 19, 2026)
 

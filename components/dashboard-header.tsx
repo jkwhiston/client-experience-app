@@ -1,10 +1,17 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { useTheme } from 'next-themes'
 import type { ActiveTab } from '@/lib/types'
 import { Button } from '@/components/ui/button'
-import { ThemeToggle } from './theme-toggle'
-import { LogOut } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Archive, LogOut, Moon, MoreHorizontal, Sun } from 'lucide-react'
 
 interface DashboardHeaderProps {
   activeTab: ActiveTab
@@ -16,6 +23,7 @@ export function DashboardHeader({
   onActiveTabChange,
 }: DashboardHeaderProps) {
   const router = useRouter()
+  const { theme, setTheme } = useTheme()
 
   async function handleSignOut() {
     await fetch('/api/auth', { method: 'DELETE' })
@@ -35,7 +43,7 @@ export function DashboardHeader({
             variant={activeTab === 'onboarding' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => onActiveTabChange('onboarding')}
-            className="text-xs"
+            className={activeTab === 'onboarding' ? 'text-xs' : 'text-xs bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'}
           >
             Onboarding
           </Button>
@@ -43,32 +51,41 @@ export function DashboardHeader({
             variant={activeTab === 'lifecycle' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => onActiveTabChange('lifecycle')}
-            className="text-xs"
+            className={activeTab === 'lifecycle' ? 'text-xs' : 'text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'}
           >
             Lifecycle
           </Button>
-          <Button
-            variant={activeTab === 'archived' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => onActiveTabChange('archived')}
-            className="text-xs"
-          >
-            Archived
-          </Button>
         </div>
 
-        <ThemeToggle />
-
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleSignOut}
-          className="h-9 w-9"
-          title="Sign out"
-        >
-          <LogOut className="h-4 w-4" />
-          <span className="sr-only">Sign out</span>
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-9 w-9">
+              <MoreHorizontal className="h-4 w-4" />
+              <span className="sr-only">More options</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => onActiveTabChange('archived')}
+              className={activeTab === 'archived' ? 'bg-accent' : ''}
+            >
+              <Archive className="h-4 w-4 mr-2" />
+              Archived
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            >
+              <Sun className="h-4 w-4 mr-2 dark:hidden" />
+              <Moon className="h-4 w-4 mr-2 hidden dark:block" />
+              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleSignOut}>
+              <LogOut className="h-4 w-4 mr-2" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   )

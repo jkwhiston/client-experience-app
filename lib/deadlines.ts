@@ -489,12 +489,13 @@ export function getActiveStageMonthly(
 }
 
 /**
- * Determine which 3 monthly experiences to display in the sliding window.
+ * Determine which 3 monthly experiences to display.
  *
- * 1. Find the first pending monthly experience (lowest month_number still active)
- * 2. Show that month and the next 2
- * 3. If all complete, show the last 3 completed
- * 4. If not enough experiences exist, show what's available
+ * Experiences are chunked into fixed groups of 3 (in month_number order).
+ * The displayed group is the first one containing at least one pending/failed
+ * node.  Completing nodes within a group keeps them visible until all 3 are
+ * done, at which point the window advances to the next group.
+ * If every group is complete, the last group is shown.
  */
 export function getVisibleMonthlyExperiences(
   client: ClientWithExperiences,
@@ -505,30 +506,27 @@ export function getVisibleMonthlyExperiences(
 
   if (monthlyExps.length === 0) return []
 
-  // Find the index of the first pending/failed experience
-  let activeIndex = -1
-  for (let i = 0; i < monthlyExps.length; i++) {
-    const exp = monthlyExps[i]
-    const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
-    const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
-    const derived = getDerivedStatus({
-      status: exp.status,
-      completed_at: exp.completed_at,
-      dueAt: dueAtEff,
-      now: nowEff,
+  const chunks: ClientExperience[][] = []
+  for (let i = 0; i < monthlyExps.length; i += 3) {
+    chunks.push(monthlyExps.slice(i, i + 3))
+  }
+
+  for (const chunk of chunks) {
+    const hasIncomplete = chunk.some((exp) => {
+      const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+      const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+      const derived = getDerivedStatus({
+        status: exp.status,
+        completed_at: exp.completed_at,
+        dueAt: dueAtEff,
+        now: nowEff,
+      })
+      return derived === 'pending' || derived === 'failed'
     })
-    if (derived === 'pending' || derived === 'failed') {
-      activeIndex = i
-      break
-    }
+    if (hasIncomplete) return chunk
   }
 
-  if (activeIndex >= 0) {
-    return monthlyExps.slice(activeIndex, activeIndex + 3)
-  }
-
-  // All complete: show last 3
-  return monthlyExps.slice(-3)
+  return chunks[chunks.length - 1]
 }
 
 /**
