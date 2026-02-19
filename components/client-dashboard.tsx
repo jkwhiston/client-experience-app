@@ -51,6 +51,18 @@ export function ClientDashboard() {
     localStorage.setItem('sortOption', sortOption)
   }, [sortOption])
 
+  // #region agent log
+  const renderCountRef = (typeof window !== 'undefined') ? (window as any).__dbg_renderCount ??= { value: 0 } : { value: 0 }
+  renderCountRef.value++
+  const redFlaggedCount = clients.filter(c => c.flag_color === 'red').length
+  const totalFlaggedCount = clients.filter(c => c.flag_color).length
+  if (renderCountRef.value % 5 === 1) {
+    const payload = {sessionId:'f80af2',hypothesisId:'H2+H4',location:'client-dashboard.tsx:render',message:'Dashboard render cycle',data:{renderCount:renderCountRef.value,totalClients:clients.length,redFlagged:redFlaggedCount,totalFlagged:totalFlaggedCount},timestamp:Date.now()}
+    console.warn('[DBG-f80af2]', payload.message, payload.data)
+    fetch('http://127.0.0.1:7245/ingest/da15c1ea-9e23-4bc6-bb0d-bb47600842fa',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f80af2'},body:JSON.stringify(payload)}).catch(()=>{});
+  }
+  // #endregion
+
   useEffect(() => {
     const interval = setInterval(() => {
       setNow(new Date())

@@ -170,9 +170,17 @@ export function ClientRow({
   }
 
   const flagRgb = FLAG_COLORS.find((f) => f.key === client.flag_color)?.rgb ?? null
-  const flagGradient = flagRgb
-    ? `linear-gradient(to right, rgba(${flagRgb},0.18) 0%, rgba(${flagRgb},0.10) 25%, rgba(${flagRgb},0.16) 50%, rgba(${flagRgb},0.08) 75%, rgba(${flagRgb},0.14) 100%)`
+  const flagStyle = flagRgb
+    ? { backgroundColor: `rgba(${flagRgb},0.13)` }
     : undefined
+
+  // #region agent log
+  if (flagRgb && client.flag_color === 'red') {
+    const payload = {sessionId:'f80af2',hypothesisId:'H2+H3',location:'client-row.tsx:flagStyle',message:'Red flag style applied',data:{clientName:client.name,flagColor:client.flag_color,flagRgb,usesSimpleBg:true},timestamp:Date.now()}
+    console.warn('[DBG-f80af2]', payload.message, payload.data)
+    fetch('http://127.0.0.1:7245/ingest/da15c1ea-9e23-4bc6-bb0d-bb47600842fa',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f80af2'},body:JSON.stringify(payload)}).catch(()=>{});
+  }
+  // #endregion
 
   function formatSignedDate(dateStr: string): string {
     const [y, m, d] = dateStr.split('-')
@@ -222,7 +230,7 @@ export function ClientRow({
       className={`flex items-stretch rounded-lg border border-border overflow-hidden ${
         isEven ? 'bg-card/60' : 'bg-card/40'
       } ${client.paused ? 'opacity-70' : ''}`}
-      style={flagGradient ? { backgroundImage: flagGradient } : undefined}
+      style={flagStyle}
     >
       <link rel="stylesheet" href={getGoogleFontUrl(nameFont)} />
 

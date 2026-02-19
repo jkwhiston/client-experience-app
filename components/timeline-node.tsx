@@ -231,6 +231,14 @@ export function TimelineNode({
   const hasNotes = experience.notes?.trim().length > 0
   const dimmed = isFocusMode && !isFocused
 
+  // #region agent log
+  if (isLiveNode && isOverdue) {
+    const payload = {sessionId:'f80af2',hypothesisId:'H1+H5',location:'timeline-node.tsx:render',message:'Pulse-red animation active',data:{clientName:client.name,expType:experience.experience_type,monthNumber:experience.month_number,isOverdue,isLiveNode,derivedStatus,hasFlagColor:!!client.flag_color,flagColor:client.flag_color},timestamp:Date.now()}
+    console.warn('[DBG-f80af2]', payload.message, payload.data)
+    fetch('http://127.0.0.1:7245/ingest/da15c1ea-9e23-4bc6-bb0d-bb47600842fa',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f80af2'},body:JSON.stringify(payload)}).catch(()=>{});
+  }
+  // #endregion
+
   const handleNodeClick = () => {
     setDetailModalOpen(true)
   }
@@ -273,11 +281,12 @@ export function TimelineNode({
                   /* ===== ACTIVE / OVERDUE: Large circle with countdown ===== */
                   <div className={cn(
                     'relative rounded-full flex flex-col items-center justify-center transition-all duration-200',
-                    'h-[110px] w-[110px] px-2 text-center overflow-hidden',
+                    'h-[110px] w-[110px] px-2 text-center',
                     isOverdue
-                      ? 'border-2 border-red-500 bg-card animate-pulse-red group-hover:ring-[5px] group-hover:ring-red-500/50 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.35)]'
-                      : 'border-2 border-blue-500 bg-card animate-pulse-blue group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
+                      ? 'border-2 border-red-500 bg-card group-hover:ring-[5px] group-hover:ring-red-500/50 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.35)]'
+                      : 'border-2 border-blue-500 bg-card group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
                   )}>
+                    <span className={cn('absolute -inset-1 rounded-full pointer-events-none', isOverdue ? 'pulse-ring-red' : 'pulse-ring-blue')} aria-hidden />
                     {/* Timer (two lines) */}
                     {timerLines && (
                       <div className="flex flex-col items-center leading-tight">

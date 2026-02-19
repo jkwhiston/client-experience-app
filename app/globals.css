@@ -126,22 +126,18 @@
   }
 }
 
-@keyframes pulse-blue {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(59,130,246,0.2), 0 0 12px rgba(59,130,246,0.1); }
-  50%      { box-shadow: 0 0 0 5px rgba(59,130,246,0.5), 0 0 20px rgba(59,130,246,0.25); }
+@keyframes pulse-ring {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 0.85; }
 }
 
-@keyframes pulse-red {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(239,68,68,0.2), 0 0 12px rgba(239,68,68,0.1); }
-  50%      { box-shadow: 0 0 0 5px rgba(239,68,68,0.5), 0 0 20px rgba(239,68,68,0.25); }
-}
+.pulse-ring-blue { box-shadow: 0 0 0 3px rgba(59,130,246,0.45), 0 0 14px rgba(59,130,246,0.2); animation: pulse-ring 3s ease-in-out infinite; }
+.pulse-ring-red  { box-shadow: 0 0 0 3px rgba(239,68,68,0.45), 0 0 14px rgba(239,68,68,0.2); animation: pulse-ring 3s ease-in-out infinite; }
 
-.animate-pulse-blue { animation: pulse-blue 3s ease-in-out infinite; }
-.animate-pulse-red  { animation: pulse-red 3s ease-in-out infinite; }
-
-.group:hover .animate-pulse-blue,
-.group:hover .animate-pulse-red {
+.group:hover .pulse-ring-blue,
+.group:hover .pulse-ring-red {
   animation: none;
+  opacity: 0;
 }
 
 @keyframes today-cell-pulse {
