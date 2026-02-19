@@ -189,19 +189,17 @@ export function ClientDashboard() {
     return { upToDate, dueSoon, overdue, completionRate, totalDue, totalCompleted }
   }, [clients, now])
 
-  // Reset sort to name_asc when switching tabs to avoid invalid sort options
   const handleTabChange = useCallback((tab: ActiveTab) => {
     setActiveTab(tab)
     setStatusFilter('all')
-    if (tab === 'lifecycle') {
-      const validOngoing: SortOption[] = ['name_asc', 'name_desc', 'next_monthly_deadline']
-      if (!validOngoing.includes(sortOption)) {
-        setSortOption('name_asc')
-      }
+    if (tab === 'onboarding') {
+      setSortOption('next_active_deadline')
+    } else if (tab === 'lifecycle') {
+      setSortOption('next_monthly_deadline')
     } else if (tab === 'archived') {
       setSortOption('name_asc')
     }
-  }, [sortOption])
+  }, [])
 
   const getFilteredClients = useCallback(() => {
     let filtered = clients.filter((c) => {
