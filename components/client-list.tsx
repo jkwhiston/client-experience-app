@@ -75,16 +75,6 @@ export function ClientList({
     )
   }
 
-  // #region agent log
-  {
-    const redFlagged = clients.filter(c => c.flag_color === 'red').length
-    const anyFlagged = clients.filter(c => c.flag_color).length
-    const payload = {sessionId:'f80af2',hypothesisId:'H1+H2',location:'client-list.tsx:render',message:'ClientList render',data:{totalRows:clients.length,redFlagged,anyFlagged,activeTab},timestamp:Date.now()}
-    console.warn('[DBG-f80af2]', payload.message, payload.data)
-    fetch('http://127.0.0.1:7245/ingest/da15c1ea-9e23-4bc6-bb0d-bb47600842fa',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f80af2'},body:JSON.stringify(payload)}).catch(()=>{});
-  }
-  // #endregion
-
   return (
     <div>
       <h2 className="text-sm font-medium text-muted-foreground pb-3">

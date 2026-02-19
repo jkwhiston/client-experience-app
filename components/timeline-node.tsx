@@ -231,14 +231,6 @@ export function TimelineNode({
   const hasNotes = experience.notes?.trim().length > 0
   const dimmed = isFocusMode && !isFocused
 
-  // #region agent log
-  if (isLiveNode && isOverdue) {
-    const payload = {sessionId:'f80af2',hypothesisId:'H1+H5',location:'timeline-node.tsx:render',message:'Pulse-red animation active',data:{clientName:client.name,expType:experience.experience_type,monthNumber:experience.month_number,isOverdue,isLiveNode,derivedStatus,hasFlagColor:!!client.flag_color,flagColor:client.flag_color},timestamp:Date.now()}
-    console.warn('[DBG-f80af2]', payload.message, payload.data)
-    fetch('http://127.0.0.1:7245/ingest/da15c1ea-9e23-4bc6-bb0d-bb47600842fa',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f80af2'},body:JSON.stringify(payload)}).catch(()=>{});
-  }
-  // #endregion
-
   const handleNodeClick = () => {
     setDetailModalOpen(true)
   }

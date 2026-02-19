@@ -174,14 +174,6 @@ export function ClientRow({
     ? { backgroundColor: `rgba(${flagRgb},0.13)` }
     : undefined
 
-  // #region agent log
-  if (flagRgb && client.flag_color === 'red') {
-    const payload = {sessionId:'f80af2',hypothesisId:'H2+H3',location:'client-row.tsx:flagStyle',message:'Red flag style applied',data:{clientName:client.name,flagColor:client.flag_color,flagRgb,usesSimpleBg:true},timestamp:Date.now()}
-    console.warn('[DBG-f80af2]', payload.message, payload.data)
-    fetch('http://127.0.0.1:7245/ingest/da15c1ea-9e23-4bc6-bb0d-bb47600842fa',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f80af2'},body:JSON.stringify(payload)}).catch(()=>{});
-  }
-  // #endregion
-
   function formatSignedDate(dateStr: string): string {
     const [y, m, d] = dateStr.split('-')
     return `${m}/${d}/${y}`
