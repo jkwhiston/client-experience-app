@@ -14,13 +14,15 @@ import {
   format,
 } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
-import type { ClientWithExperiences, ClientExperience, DerivedStatus } from '@/lib/types'
-import { EXPERIENCE_TYPES } from '@/lib/types'
+import type { ClientWithExperiences, ClientExperience, DerivedStatus, ActiveTab } from '@/lib/types'
+import { INITIAL_EXPERIENCE_TYPES } from '@/lib/types'
 import {
   getEffectiveDueDate,
   getDueAtEffective,
   getNowEffective,
   getDerivedStatus,
+  getActiveStage,
+  getActiveStageMonthly,
 } from '@/lib/deadlines'
 import {
   Dialog,
@@ -46,6 +48,7 @@ interface CalendarModalProps {
     clientId: string,
     updater: (c: ClientWithExperiences) => ClientWithExperiences
   ) => void
+  activeTab?: ActiveTab
 }
 
 export function CalendarModal({
@@ -54,12 +57,15 @@ export function CalendarModal({
   clients,
   now,
   updateClientLocal,
+  activeTab,
 }: CalendarModalProps) {
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(now))
   const [showCompleted, setShowCompleted] = useState(false)
+  const [showOngoing, setShowOngoing] = useState(() => activeTab === 'lifecycle')
 
   const [selectedClient, setSelectedClient] = useState<ClientWithExperiences | null>(null)
   const [selectedExperience, setSelectedExperience] = useState<ClientExperience | null>(null)
+  const [selectedIsActive, setSelectedIsActive] = useState(true)
   const [detailOpen, setDetailOpen] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
 
@@ -77,9 +83,15 @@ export function CalendarModal({
 
     for (const client of activeClients) {
       const nowEff = getNowEffective(client, now)
+      const clientActiveStage = getActiveStage(client, now)
+      const clientActiveMonthlyStage = getActiveStageMonthly(client, now)
 
       for (const exp of client.client_experiences) {
-        if (!EXPERIENCE_TYPES.includes(exp.experience_type)) continue
+        const isInitial = INITIAL_EXPERIENCE_TYPES.includes(exp.experience_type)
+        const isMonthly = exp.experience_type === 'monthly'
+
+        if (!isInitial && !isMonthly) continue
+        if (isMonthly && !showOngoing) continue
 
         const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
         const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
@@ -94,6 +106,10 @@ export function CalendarModal({
           continue
         }
 
+        const isActive = isMonthly
+          ? exp.month_number === clientActiveMonthlyStage
+          : exp.experience_type === clientActiveStage
+
         const zonedDue = toZonedTime(dueAtEff, FIRM_TIMEZONE)
         const dateKey = format(zonedDue, 'yyyy-MM-dd')
 
@@ -102,7 +118,9 @@ export function CalendarModal({
           clientName: client.name,
           experienceId: exp.id,
           experienceType: exp.experience_type,
+          monthNumber: exp.month_number ?? undefined,
           derivedStatus: derived,
+          isActive,
           dueDate: dueAtEff,
         }
 
@@ -118,7 +136,7 @@ export function CalendarModal({
     }
 
     return map
-  }, [clients, now, showCompleted])
+  }, [clients, now, showCompleted, showOngoing])
 
   const handleEventClick = useCallback(
     (event: CalendarEvent) => {
@@ -129,6 +147,7 @@ export function CalendarModal({
       if (client && experience) {
         setSelectedClient(client)
         setSelectedExperience(experience)
+        setSelectedIsActive(event.isActive)
         setDetailOpen(true)
       }
     },
@@ -158,7 +177,6 @@ export function CalendarModal({
           showCloseButton={false}
           className="sm:max-w-6xl h-[85vh] flex flex-col p-0 gap-0 overflow-hidden"
         >
-          {/* Header */}
           <div className="flex items-center justify-between border-b border-border px-5 py-3">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-semibold">
@@ -192,7 +210,23 @@ export function CalendarModal({
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowOngoing((v) => !v)}
+                className={cn(
+                  'text-xs gap-1.5',
+                  showOngoing && 'text-violet-400',
+                )}
+              >
+                {showOngoing ? (
+                  <Eye className="h-3.5 w-3.5" />
+                ) : (
+                  <EyeOff className="h-3.5 w-3.5" />
+                )}
+                {showOngoing ? 'Lifecycle visible' : 'Lifecycle hidden'}
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -220,7 +254,6 @@ export function CalendarModal({
             </div>
           </div>
 
-          {/* Weekday headers */}
           <div className="grid grid-cols-7 border-b border-border">
             {WEEKDAY_LABELS.map((day, i) => (
               <div
@@ -235,7 +268,6 @@ export function CalendarModal({
             ))}
           </div>
 
-          {/* Calendar grid */}
           <div className="flex-1 overflow-hidden">
             <div
               className="grid grid-cols-7 border-l border-t border-border h-full"
@@ -262,7 +294,6 @@ export function CalendarModal({
         </DialogContent>
       </Dialog>
 
-      {/* Detail modal (rendered outside to stack above calendar) */}
       {updatedSelectedClient && updatedSelectedExperience && (
         <>
           <ExperienceDetailModal
@@ -271,6 +302,7 @@ export function CalendarModal({
             client={updatedSelectedClient}
             experience={updatedSelectedExperience}
             now={now}
+            isActiveStage={selectedIsActive}
             onOpenNotes={() => {
               setDetailOpen(false)
               setNotesOpen(true)

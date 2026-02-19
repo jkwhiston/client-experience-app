@@ -1,15 +1,18 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import type {
   ClientWithExperiences,
   FocusTab,
   ActiveTab,
   ExperienceType,
+  ClientExperience,
 } from '@/lib/types'
-import { EXPERIENCE_TYPES } from '@/lib/types'
+import { EXPERIENCE_TYPES, FLAG_COLORS } from '@/lib/types'
 import {
   getActiveStage,
+  getActiveStageMonthly,
+  getVisibleMonthlyExperiences,
   getEffectiveDueDate,
   getDueAtEffective,
   getNowEffective,
@@ -36,8 +39,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { MoreHorizontal, Pause, Play, Archive, ArchiveRestore, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Pause, Play, Archive, ArchiveRestore, Trash2, History, X, Check } from 'lucide-react'
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from '@/components/ui/context-menu'
 import { TimelineNode } from './timeline-node'
+import { MonthlyHistoryModal } from './monthly-history-modal'
 
 interface ClientRowProps {
   index: number
@@ -66,15 +77,23 @@ export function ClientRow({
   const [nameValue, setNameValue] = useState(client.name)
   const [dateValue, setDateValue] = useState(client.signed_on_date)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
   const dateRef = useRef<HTMLInputElement>(null)
 
   const isArchived = activeTab === 'archived'
+  const isOngoing = activeTab === 'lifecycle'
   const isFocusMode = focusTab !== 'overview'
   const activeStage = getActiveStage(client, now)
+  const activeMonthlyStage = useMemo(() => getActiveStageMonthly(client, now), [client, now])
   const isEven = index % 2 === 0
   const nameFont = getClientFont(client.id)
   const nameFontStyle = { fontFamily: `"${nameFont}", sans-serif` }
+
+  const visibleMonthlyExps = useMemo(
+    () => isOngoing ? getVisibleMonthlyExperiences(client, now) : [],
+    [isOngoing, client, now]
+  )
 
   async function saveName() {
     setEditingName(false)
@@ -98,7 +117,6 @@ export function ClientRow({
 
   async function handlePauseResume() {
     if (client.paused) {
-      // Resume
       const pauseStart = new Date(client.pause_started_at!).getTime()
       const pausedSeconds = Math.floor((Date.now() - pauseStart) / 1000)
       const newTotal = client.paused_total_seconds + pausedSeconds
@@ -115,7 +133,6 @@ export function ClientRow({
         paused_total_seconds: newTotal,
       })
     } else {
-      // Pause
       const nowStr = new Date().toISOString()
       updateClientLocal(client.id, (c) => ({
         ...c,
@@ -147,16 +164,24 @@ export function ClientRow({
     await deleteClient(client.id)
   }
 
+  async function handleFlagChange(color: string | null) {
+    updateClientLocal(client.id, (c) => ({ ...c, flag_color: color }))
+    await updateClient(client.id, { flag_color: color })
+  }
+
+  const flagRgb = FLAG_COLORS.find((f) => f.key === client.flag_color)?.rgb ?? null
+  const flagGradient = flagRgb
+    ? `linear-gradient(to right, rgba(${flagRgb},0.18) 0%, rgba(${flagRgb},0.10) 25%, rgba(${flagRgb},0.16) 50%, rgba(${flagRgb},0.08) 75%, rgba(${flagRgb},0.14) 100%)`
+    : undefined
+
   function formatSignedDate(dateStr: string): string {
     const [y, m, d] = dateStr.split('-')
     return `${m}/${d}/${y}`
   }
 
-  function getSegmentStatuses(): ('done' | 'done_late' | 'failed' | 'pending')[] {
+  function getSegmentStatuses(exps: ClientExperience[]): ('done' | 'done_late' | 'failed' | 'pending')[] {
     const nowEff = getNowEffective(client, now)
-    return EXPERIENCE_TYPES.map((expType) => {
-      const exp = client.client_experiences.find((e) => e.experience_type === expType)
-      if (!exp) return 'pending'
+    return exps.map((exp) => {
       const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
       const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
       const status = getDerivedStatus({
@@ -172,35 +197,41 @@ export function ClientRow({
     })
   }
 
-  function getTrackGradient(): string {
-    const statuses = getSegmentStatuses()
+  function getTrackGradient(exps: ClientExperience[]): string {
+    const statuses = getSegmentStatuses(exps)
     const colorMap = (s: 'done' | 'done_late' | 'failed' | 'pending') => {
       if (s === 'done') return 'rgb(34,197,94)'
       if (s === 'done_late') return 'rgb(245,158,11)'
       if (s === 'failed') return 'rgb(239,68,68)'
       return 'transparent'
     }
-    const c1 = colorMap(statuses[0])
-    const c2 = colorMap(statuses[1])
-    const c3 = colorMap(statuses[2])
+    const c1 = colorMap(statuses[0] ?? 'pending')
+    const c2 = colorMap(statuses[1] ?? 'pending')
+    const c3 = colorMap(statuses[2] ?? 'pending')
     return `linear-gradient(to right, ${c1} 0%, ${c1} 23%, ${c2} 27%, ${c2} 73%, ${c3} 77%, ${c3} 100%)`
   }
 
+  const displayExps: ClientExperience[] = isOngoing
+    ? visibleMonthlyExps
+    : EXPERIENCE_TYPES.map((t) => client.client_experiences.find((e) => e.experience_type === t)).filter(Boolean) as ClientExperience[]
+
   return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
     <div
       className={`flex items-stretch rounded-lg border border-border overflow-hidden ${
         isEven ? 'bg-card/60' : 'bg-card/40'
       } ${client.paused ? 'opacity-70' : ''}`}
+      style={flagGradient ? { backgroundImage: flagGradient } : undefined}
     >
-      {/* Load unique Google Font for this client's name */}
       <link rel="stylesheet" href={getGoogleFontUrl(nameFont)} />
 
-      {/* Alternating vertical bar */}
-      <div className={`w-1 shrink-0 ${isEven ? 'bg-muted-foreground/30' : 'bg-muted-foreground/15'}`} />
+      <div
+        className={flagRgb ? 'w-1 shrink-0' : `w-1 shrink-0 ${isEven ? 'bg-muted-foreground/30' : 'bg-muted-foreground/15'}`}
+        style={flagRgb ? { backgroundColor: `rgba(${flagRgb},0.5)` } : undefined}
+      />
 
-      {/* Left column: client info */}
       <div className="flex flex-col justify-center p-4 w-[240px] shrink-0 border-r border-border">
-        {/* Name */}
         {editingName && !isArchived ? (
           <Input
             ref={nameRef}
@@ -233,7 +264,6 @@ export function ClientRow({
           </button>
         )}
 
-        {/* Signed-on date */}
         {editingDate && !isArchived ? (
           <Input
             ref={dateRef}
@@ -265,7 +295,6 @@ export function ClientRow({
           </button>
         )}
 
-        {/* Actions */}
         <div className="flex items-center gap-1 mt-2">
           {!isArchived && (
             <DropdownMenu>
@@ -304,6 +333,18 @@ export function ClientRow({
             </DropdownMenu>
           )}
 
+          {isOngoing && !isArchived && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setHistoryOpen(true)}
+              title="View all monthly experiences"
+            >
+              <History className="h-4 w-4" />
+            </Button>
+          )}
+
           {isArchived && (
             <div className="flex items-center gap-1">
               <Button
@@ -333,9 +374,7 @@ export function ClientRow({
         </div>
       </div>
 
-      {/* Right column: timeline track + nodes */}
       <div className="flex-1 relative flex items-stretch justify-between py-5 pl-10 pr-14 min-h-[200px]">
-        {/* Track: base dotted line */}
         <div
           className="absolute left-[72px] right-[88px] top-[calc(50%+10px)] -translate-y-1/2 h-[3px] rounded-full"
           style={{
@@ -343,28 +382,26 @@ export function ClientRow({
           }}
           aria-hidden
         />
-        {/* Track: solid color overlay for done/failed segments */}
         <div
           className="absolute left-[72px] right-[88px] top-[calc(50%+10px)] -translate-y-1/2 h-[3px] rounded-full"
           style={{
-            background: getTrackGradient(),
+            background: getTrackGradient(displayExps),
           }}
           aria-hidden
         />
-        {EXPERIENCE_TYPES.map((expType) => {
-          const exp = client.client_experiences.find(
-            (e) => e.experience_type === expType
-          )
-          if (!exp) return null
+        {displayExps.map((exp) => {
+          const isActive = isOngoing
+            ? exp.month_number === activeMonthlyStage
+            : exp.experience_type === activeStage
           return (
             <TimelineNode
               key={exp.id}
               experience={exp}
               client={client}
               now={now}
-              isFocused={focusTab === expType}
+              isFocused={!isOngoing && focusTab === exp.experience_type}
               isFocusMode={isFocusMode}
-              isActiveStage={expType === activeStage}
+              isActiveStage={isActive}
               isArchived={isArchived}
               updateClientLocal={updateClientLocal}
             />
@@ -392,6 +429,45 @@ export function ClientRow({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {isOngoing && (
+        <MonthlyHistoryModal
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          client={client}
+          now={now}
+          updateClientLocal={updateClientLocal}
+        />
+      )}
     </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="min-w-0">
+        <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Flag Color</div>
+        <div className="flex items-center gap-1.5 px-2 py-1.5">
+          {FLAG_COLORS.map((fc) => (
+            <button
+              key={fc.key}
+              onClick={() => handleFlagChange(fc.key)}
+              title={fc.label}
+              className="relative h-5 w-5 rounded-full border border-border transition-transform hover:scale-110 focus:outline-none"
+              style={{ backgroundColor: `rgb(${fc.rgb})` }}
+            >
+              {client.flag_color === fc.key && (
+                <Check className="absolute inset-0 m-auto h-3 w-3 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]" />
+              )}
+            </button>
+          ))}
+        </div>
+        {client.flag_color && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => handleFlagChange(null)}>
+              <X className="h-3.5 w-3.5 mr-2" />
+              Clear Flag
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }

@@ -8,6 +8,7 @@ const DEADLINE_SORT_LABELS: Record<string, string> = {
   deadline_hour24: '24-Hour',
   deadline_day14: '14-Day',
   deadline_day30: '30-Day',
+  next_monthly_deadline: 'Monthly',
 }
 
 interface ClientListProps {
@@ -84,8 +85,10 @@ export function ClientList({
               Unarchive to edit client details
             </span>
           </>
+        ) : activeTab === 'lifecycle' ? (
+          'Lifecycle Clients'
         ) : (
-          'Active Clients'
+          'Onboarding Clients'
         )}
       </h2>
       <div className="space-y-5">

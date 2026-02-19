@@ -1,6 +1,6 @@
-import { addDays } from 'date-fns'
+import { addDays, addMonths } from 'date-fns'
 import { toZonedTime, fromZonedTime } from 'date-fns-tz'
-import type { ExperienceType, ExperienceStatus, DerivedStatus, ClientWithExperiences } from './types'
+import type { ExperienceType, ExperienceStatus, DerivedStatus, ClientWithExperiences, ClientExperience } from './types'
 import { EXPERIENCE_TYPES } from './types'
 
 const FIRM_TIMEZONE = process.env.NEXT_PUBLIC_FIRM_TIMEZONE || 'America/New_York'
@@ -12,37 +12,43 @@ const FIRM_TIMEZONE = process.env.NEXT_PUBLIC_FIRM_TIMEZONE || 'America/New_York
  * 24h: 11:59 PM on signed_on_date + 1 day
  * 14d: 11:59 PM on signed_on_date + 14 days
  * 30d: 11:59 PM on signed_on_date + 30 days
+ * monthly: 11:59 PM on signed_on_date + N months (uses addMonths for proper month-length handling)
  */
 export function getDueAt(
   signedOnDate: string | Date,
   experienceType: ExperienceType,
-  firmTz: string = FIRM_TIMEZONE
+  firmTz: string = FIRM_TIMEZONE,
+  monthNumber?: number | null
 ): Date {
   const baseDate = typeof signedOnDate === 'string' ? new Date(signedOnDate + 'T00:00:00') : signedOnDate
 
-  let daysToAdd: number
-  switch (experienceType) {
-    case 'hour24':
-      daysToAdd = 1
-      break
-    case 'day14':
-      daysToAdd = 14
-      break
-    case 'day30':
-      daysToAdd = 30
-      break
+  let targetDate: Date
+  if (experienceType === 'monthly' && monthNumber != null) {
+    targetDate = addMonths(baseDate, monthNumber)
+  } else {
+    let daysToAdd: number
+    switch (experienceType) {
+      case 'hour24':
+        daysToAdd = 1
+        break
+      case 'day14':
+        daysToAdd = 14
+        break
+      case 'day30':
+        daysToAdd = 30
+        break
+      default:
+        daysToAdd = 30
+        break
+    }
+    targetDate = addDays(baseDate, daysToAdd)
   }
 
-  const targetDate = addDays(baseDate, daysToAdd)
-
-  // Build end-of-day in firm timezone: 11:59 PM
   const year = targetDate.getFullYear()
   const month = targetDate.getMonth()
   const day = targetDate.getDate()
 
-  // Create a date representing 11:59 PM in the firm timezone
   const endOfDayInFirmTz = new Date(year, month, day, 23, 59, 0, 0)
-  // Convert from firm timezone to UTC
   const utcDate = fromZonedTime(endOfDayInFirmTz, firmTz)
 
   return utcDate
@@ -53,14 +59,14 @@ export function getDueAt(
  * Uses custom_due_at if set, otherwise falls back to the default computed deadline.
  */
 export function getEffectiveDueDate(
-  experience: { custom_due_at: string | null; experience_type: ExperienceType },
+  experience: { custom_due_at: string | null; experience_type: ExperienceType; month_number?: number | null },
   signedOnDate: string | Date,
   firmTz: string = FIRM_TIMEZONE
 ): Date {
   if (experience.custom_due_at) {
     return new Date(experience.custom_due_at)
   }
-  return getDueAt(signedOnDate, experience.experience_type, firmTz)
+  return getDueAt(signedOnDate, experience.experience_type, firmTz, experience.month_number)
 }
 
 /**
@@ -250,14 +256,17 @@ export function getUrgency(
 
   switch (experienceType) {
     case 'hour24':
-      // Red when <= 8 hours
       if (secondsRemaining <= 8 * 3600) return 'red'
       return 'normal'
     case 'day14':
     case 'day30':
-      // Red when <= 2 days, yellow when <= 5 days
       if (secondsRemaining <= 2 * 86400) return 'red'
       if (secondsRemaining <= 5 * 86400) return 'yellow'
+      return 'normal'
+    case 'monthly':
+      // More lax thresholds: red when <= 3 days, yellow when <= 7 days
+      if (secondsRemaining <= 3 * 86400) return 'red'
+      if (secondsRemaining <= 7 * 86400) return 'yellow'
       return 'normal'
   }
 }
@@ -436,4 +445,112 @@ export function formatRelativeTiming(
   if (days === 0 && minutes > 0) parts.push(`${minutes}m`)
 
   return { label: parts.join(' ') || 'On time', isEarly }
+}
+
+/**
+ * Get all monthly experiences for a client, sorted by month_number ascending.
+ */
+export function getMonthlyExperiences(client: ClientWithExperiences): ClientExperience[] {
+  return client.client_experiences
+    .filter((e) => e.experience_type === 'monthly' && e.month_number != null)
+    .sort((a, b) => (a.month_number ?? 0) - (b.month_number ?? 0))
+}
+
+/**
+ * Get the "active" monthly stage — the first monthly experience that is pending or failed.
+ * Returns the experience's month_number, or null if all monthly stages are done
+ * or the initial 30-day onboarding experience hasn't been resolved yet.
+ */
+export function getActiveStageMonthly(
+  client: ClientWithExperiences,
+  now: Date = new Date()
+): number | null {
+  const day30 = client.client_experiences.find((e) => e.experience_type === 'day30')
+  if (day30 && day30.status === 'pending') return null
+
+  const nowEff = getNowEffective(client, now)
+  const monthlyExps = getMonthlyExperiences(client)
+
+  for (const exp of monthlyExps) {
+    const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+    const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+    const derivedStatus = getDerivedStatus({
+      status: exp.status,
+      completed_at: exp.completed_at,
+      dueAt: dueAtEff,
+      now: nowEff,
+    })
+
+    if (derivedStatus === 'pending' || derivedStatus === 'failed') {
+      return exp.month_number
+    }
+  }
+  return null
+}
+
+/**
+ * Determine which 3 monthly experiences to display in the sliding window.
+ *
+ * 1. Find the first pending monthly experience (lowest month_number still active)
+ * 2. Show that month and the next 2
+ * 3. If all complete, show the last 3 completed
+ * 4. If not enough experiences exist, show what's available
+ */
+export function getVisibleMonthlyExperiences(
+  client: ClientWithExperiences,
+  now: Date = new Date()
+): ClientExperience[] {
+  const nowEff = getNowEffective(client, now)
+  const monthlyExps = getMonthlyExperiences(client)
+
+  if (monthlyExps.length === 0) return []
+
+  // Find the index of the first pending/failed experience
+  let activeIndex = -1
+  for (let i = 0; i < monthlyExps.length; i++) {
+    const exp = monthlyExps[i]
+    const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+    const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+    const derived = getDerivedStatus({
+      status: exp.status,
+      completed_at: exp.completed_at,
+      dueAt: dueAtEff,
+      now: nowEff,
+    })
+    if (derived === 'pending' || derived === 'failed') {
+      activeIndex = i
+      break
+    }
+  }
+
+  if (activeIndex >= 0) {
+    return monthlyExps.slice(activeIndex, activeIndex + 3)
+  }
+
+  // All complete: show last 3
+  return monthlyExps.slice(-3)
+}
+
+/**
+ * Get the nearest active monthly deadline for a client.
+ * Returns the effective due date of the nearest pending monthly experience, or null.
+ */
+export function getNextMonthlyDeadline(
+  client: ClientWithExperiences,
+): Date | null {
+  let nearest: Date | null = null
+  const monthlyExps = getMonthlyExperiences(client)
+
+  for (const exp of monthlyExps) {
+    if (exp.status !== 'pending') continue
+
+    const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+    const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+
+    if (nearest === null || dueAtEff.getTime() < nearest.getTime()) {
+      nearest = dueAtEff
+    }
+  }
+
+  return nearest
 }

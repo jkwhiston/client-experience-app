@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ClientWithExperiences, ClientExperience, TodoItem } from '@/lib/types'
-import { EXPERIENCE_LABELS } from '@/lib/types'
+import { getExperienceLabel } from '@/lib/types'
 import { updateExperience } from '@/lib/queries'
 import {
   Dialog,
@@ -51,7 +51,7 @@ export function NotesModal({
   const todoInputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
   const focusIdRef = useRef<string | null>(null)
 
-  const label = EXPERIENCE_LABELS[experience.experience_type]
+  const label = getExperienceLabel(experience)
 
   // Reset state when the modal opens
   useEffect(() => {

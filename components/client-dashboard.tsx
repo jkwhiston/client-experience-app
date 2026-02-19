@@ -16,11 +16,14 @@ import {
   getNowEffective,
   getDerivedStatus,
   getNextActiveDeadline,
+  getMonthlyExperiences,
+  getNextMonthlyDeadline,
 } from '@/lib/deadlines'
-import { fetchClients } from '@/lib/queries'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { fetchClients, backfillMonthlyExperiences, checkMonthlyMigration } from '@/lib/queries'
+import { ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import { DashboardHeader } from './dashboard-header'
 import { SummaryRow } from './summary-row'
+import { OngoingSummaryRow, type OngoingSummaryCounts } from './ongoing-summary-row'
 import { ControlsBar } from './controls-bar'
 import { ClientList } from './client-list'
 import { CalendarModal } from './calendar-modal'
@@ -28,7 +31,7 @@ import { CalendarModal } from './calendar-modal'
 export function ClientDashboard() {
   const [clients, setClients] = useState<ClientWithExperiences[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<ActiveTab>('active')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('onboarding')
   const focusTab = 'overview' as const
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sortOption, setSortOption] = useState<SortOption>(() => {
@@ -39,15 +42,15 @@ export function ClientDashboard() {
   })
   const [searchQuery, setSearchQuery] = useState('')
   const [summaryOpen, setSummaryOpen] = useState(true)
+  const [ongoingSummaryOpen, setOngoingSummaryOpen] = useState(true)
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [migrationNeeded, setMigrationNeeded] = useState(false)
   const [now, setNow] = useState(new Date())
 
-  // Persist sort option to localStorage
   useEffect(() => {
     localStorage.setItem('sortOption', sortOption)
   }, [sortOption])
 
-  // Tick every second for live countdowns
   useEffect(() => {
     const interval = setInterval(() => {
       setNow(new Date())
@@ -55,19 +58,22 @@ export function ClientDashboard() {
     return () => clearInterval(interval)
   }, [])
 
-  // Fetch clients on mount
   useEffect(() => {
     loadClients()
   }, [])
 
   const loadClients = async () => {
     setLoading(true)
-    const data = await fetchClients()
+    const migrationOk = await checkMonthlyMigration()
+    setMigrationNeeded(!migrationOk)
+    let data = await fetchClients()
+    if (migrationOk) {
+      data = await backfillMonthlyExperiences(data)
+    }
     setClients(data)
     setLoading(false)
   }
 
-  // Optimistic update helper
   const updateClientLocal = useCallback(
     (clientId: string, updater: (c: ClientWithExperiences) => ClientWithExperiences) => {
       setClients((prev) =>
@@ -85,7 +91,6 @@ export function ClientDashboard() {
     setClients((prev) => prev.filter((c) => c.id !== clientId))
   }, [])
 
-  // Get derived status for a specific experience
   const getExpDerivedStatus = useCallback(
     (client: ClientWithExperiences, expType: ExperienceType): DerivedStatus => {
       const exp = client.client_experiences.find(
@@ -107,7 +112,6 @@ export function ClientDashboard() {
     [now]
   )
 
-  // Compute summary counts
   const computeSummaryCounts = useCallback(
     (expType: ExperienceType) => {
       const activeClients = clients.filter((c) => !c.is_archived)
@@ -126,13 +130,85 @@ export function ClientDashboard() {
     [clients, getExpDerivedStatus]
   )
 
-  // Filter and sort clients
-  const getFilteredClients = useCallback(() => {
-    let filtered = clients.filter((c) =>
-      activeTab === 'active' ? !c.is_archived : c.is_archived
-    )
+  const computeOngoingSummaryCounts = useMemo((): OngoingSummaryCounts => {
+    const activeClients = clients.filter((c) => !c.is_archived)
+    let upToDate = 0
+    let dueSoon = 0
+    let overdue = 0
+    let totalDue = 0
+    let totalCompleted = 0
 
-    // Search filter
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+
+    for (const client of activeClients) {
+      const monthlyExps = getMonthlyExperiences(client)
+      const nowEff = getNowEffective(client, now)
+      let clientHasOverdue = false
+      let clientHasDueSoon = false
+      let clientAllDueDone = true
+
+      for (const exp of monthlyExps) {
+        const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+        const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+
+        // Only count experiences that are currently due (deadline is in the past or within now)
+        const isDue = nowEff >= dueAtEff
+        const isDueSoon = !isDue && (dueAtEff.getTime() - nowEff.getTime()) <= sevenDaysMs
+
+        if (isDue) {
+          totalDue++
+          if (exp.status === 'yes') {
+            totalCompleted++
+          } else if (exp.status === 'pending') {
+            clientHasOverdue = true
+            clientAllDueDone = false
+          } else if (exp.status === 'no') {
+            clientAllDueDone = false
+          }
+        }
+
+        if (isDueSoon && exp.status === 'pending') {
+          clientHasDueSoon = true
+        }
+      }
+
+      if (monthlyExps.length > 0) {
+        const hasAnyDue = monthlyExps.some((exp) => {
+          const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+          const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+          return getNowEffective(client, now) >= dueAtEff
+        })
+        if (hasAnyDue && clientAllDueDone) upToDate++
+      }
+      if (clientHasOverdue) overdue++
+      if (clientHasDueSoon) dueSoon++
+    }
+
+    const completionRate = totalDue > 0 ? Math.round((totalCompleted / totalDue) * 100) : 100
+
+    return { upToDate, dueSoon, overdue, completionRate, totalDue, totalCompleted }
+  }, [clients, now])
+
+  // Reset sort to name_asc when switching tabs to avoid invalid sort options
+  const handleTabChange = useCallback((tab: ActiveTab) => {
+    setActiveTab(tab)
+    setStatusFilter('all')
+    if (tab === 'lifecycle') {
+      const validOngoing: SortOption[] = ['name_asc', 'name_desc', 'next_monthly_deadline']
+      if (!validOngoing.includes(sortOption)) {
+        setSortOption('name_asc')
+      }
+    } else if (tab === 'archived') {
+      setSortOption('name_asc')
+    }
+  }, [sortOption])
+
+  const getFilteredClients = useCallback(() => {
+    let filtered = clients.filter((c) => {
+      if (activeTab === 'archived') return c.is_archived
+      return !c.is_archived
+    })
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter((c) =>
@@ -140,15 +216,28 @@ export function ClientDashboard() {
       )
     }
 
-    // Status filter
     if (statusFilter !== 'all') {
       filtered = filtered.filter((client) => {
+        if (activeTab === 'lifecycle') {
+          const monthlyExps = getMonthlyExperiences(client)
+          const nowEff = getNowEffective(client, now)
+          return monthlyExps.some((exp) => {
+            const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+            const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
+            const derived = getDerivedStatus({
+              status: exp.status,
+              completed_at: exp.completed_at,
+              dueAt: dueAtEff,
+              now: nowEff,
+            })
+            return matchesFilter(derived, statusFilter)
+          })
+        }
+
         if (focusTab !== 'overview') {
-          // Focus mode: filter by focused milestone
           const status = getExpDerivedStatus(client, focusTab as ExperienceType)
           return matchesFilter(status, statusFilter)
         } else {
-          // Overview: include if ANY milestone matches
           return EXPERIENCE_TYPES.some((expType) => {
             const status = getExpDerivedStatus(client, expType)
             return matchesFilter(status, statusFilter)
@@ -157,28 +246,32 @@ export function ClientDashboard() {
       })
     }
 
-    // Filter by active deadline when using deadline sort options
-    if (
-      sortOption === 'deadline_hour24' ||
-      sortOption === 'deadline_day14' ||
-      sortOption === 'deadline_day30'
-    ) {
-      const expType = sortOption.replace('deadline_', '') as ExperienceType
-      filtered = filtered.filter((client) => {
-        const exp = client.client_experiences.find(
-          (e) => e.experience_type === expType
+    if (activeTab === 'lifecycle') {
+      if (sortOption === 'next_monthly_deadline') {
+        filtered = filtered.filter(
+          (client) => getNextMonthlyDeadline(client) !== null
         )
-        // Only keep clients whose experience for this type is still active (DB pending)
-        return exp != null && exp.status === 'pending'
-      })
-    } else if (sortOption === 'next_active_deadline') {
-      // Only keep clients that have at least one active deadline
-      filtered = filtered.filter(
-        (client) => getNextActiveDeadline(client) !== null
-      )
+      }
+    } else if (activeTab === 'onboarding') {
+      if (
+        sortOption === 'deadline_hour24' ||
+        sortOption === 'deadline_day14' ||
+        sortOption === 'deadline_day30'
+      ) {
+        const expType = sortOption.replace('deadline_', '') as ExperienceType
+        filtered = filtered.filter((client) => {
+          const exp = client.client_experiences.find(
+            (e) => e.experience_type === expType
+          )
+          return exp != null && exp.status === 'pending'
+        })
+      } else if (sortOption === 'next_active_deadline') {
+        filtered = filtered.filter(
+          (client) => getNextActiveDeadline(client) !== null
+        )
+      }
     }
 
-    // Sort
     filtered.sort((a, b) => {
       switch (sortOption) {
         case 'name_asc':
@@ -202,8 +295,12 @@ export function ClientDashboard() {
         case 'next_active_deadline': {
           const dueA = getNextActiveDeadline(a)
           const dueB = getNextActiveDeadline(b)
-          // Both guaranteed non-null after the filter above
           return (dueA?.getTime() ?? 0) - (dueB?.getTime() ?? 0)
+        }
+        case 'next_monthly_deadline': {
+          const dueA = getNextMonthlyDeadline(a)
+          const dueB = getNextMonthlyDeadline(b)
+          return (dueA?.getTime() ?? Infinity) - (dueB?.getTime() ?? Infinity)
         }
         default:
           return 0
@@ -211,9 +308,8 @@ export function ClientDashboard() {
     })
 
     return filtered
-  }, [clients, activeTab, searchQuery, statusFilter, focusTab, sortOption, getExpDerivedStatus])
+  }, [clients, activeTab, searchQuery, statusFilter, focusTab, sortOption, now, getExpDerivedStatus])
 
-  // Handle summary count click
   const handleSummaryClick = useCallback(
     (expType: ExperienceType, filter: StatusFilter) => {
       setStatusFilter(filter)
@@ -222,9 +318,15 @@ export function ClientDashboard() {
     []
   )
 
+  const handleOngoingSummaryFilterClick = useCallback(
+    (filter: StatusFilter) => {
+      setStatusFilter(filter)
+    },
+    []
+  )
+
   const filteredClients = getFilteredClients()
 
-  // Export CSV handler
   useEffect(() => {
     function handleExport() {
       const archivedClients = clients.filter((c) => c.is_archived)
@@ -263,9 +365,13 @@ export function ClientDashboard() {
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-[1400px] px-4 py-4 sm:px-6 lg:px-8">
-        <DashboardHeader activeTab={activeTab} onActiveTabChange={setActiveTab} />
+        <DashboardHeader activeTab={activeTab} onActiveTabChange={handleTabChange} />
 
-        {activeTab === 'active' && (
+        {migrationNeeded && activeTab === 'lifecycle' && (
+          <MigrationBanner onMigrationApplied={() => { setMigrationNeeded(false); loadClients() }} />
+        )}
+
+        {activeTab === 'onboarding' && (
           <div className="pb-4">
             <button
               onClick={() => setSummaryOpen((v) => !v)}
@@ -282,6 +388,28 @@ export function ClientDashboard() {
               <SummaryRow
                 computeCounts={computeSummaryCounts}
                 onCountClick={handleSummaryClick}
+              />
+            )}
+          </div>
+        )}
+
+        {activeTab === 'lifecycle' && (
+          <div className="pb-4">
+            <button
+              onClick={() => setOngoingSummaryOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors mb-2"
+            >
+              {ongoingSummaryOpen ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+              Lifecycle Summaries
+            </button>
+            {ongoingSummaryOpen && (
+              <OngoingSummaryRow
+                counts={computeOngoingSummaryCounts}
+                onFilterClick={handleOngoingSummaryFilterClick}
               />
             )}
           </div>
@@ -317,7 +445,105 @@ export function ClientDashboard() {
         clients={clients}
         now={now}
         updateClientLocal={updateClientLocal}
+        activeTab={activeTab}
       />
+    </div>
+  )
+}
+
+function MigrationBanner({ onMigrationApplied }: { onMigrationApplied: () => void }) {
+  const [copiedStep, setCopiedStep] = useState<1 | 2 | null>(null)
+  const [result, setResult] = useState<{ success?: boolean; message?: string; error?: string } | null>(null)
+
+  const step1Sql = `ALTER TYPE experience_type ADD VALUE IF NOT EXISTS 'monthly';
+ALTER TABLE client_experiences ADD COLUMN IF NOT EXISTS month_number integer;`
+
+  const step2Sql = `DELETE FROM client_experiences WHERE experience_type = 'monthly';
+
+ALTER TABLE client_experiences DROP CONSTRAINT IF EXISTS client_experiences_client_id_experience_type_key;
+
+CREATE UNIQUE INDEX IF NOT EXISTS client_experiences_client_id_experience_type_key
+ON client_experiences (client_id, experience_type, COALESCE(month_number, 0));
+
+INSERT INTO client_experiences (client_id, experience_type, month_number, status, notes, todos)
+SELECT c.id, 'monthly', m.month_number, 'pending', '', '[]'::jsonb
+FROM clients c
+CROSS JOIN generate_series(2, 18) AS m(month_number)
+WHERE NOT EXISTS (
+  SELECT 1 FROM client_experiences ce
+  WHERE ce.client_id = c.id
+    AND ce.experience_type = 'monthly'
+    AND ce.month_number = m.month_number
+);`
+
+  async function handleCopy(step: 1 | 2) {
+    await navigator.clipboard.writeText(step === 1 ? step1Sql : step2Sql)
+    setCopiedStep(step)
+    setTimeout(() => setCopiedStep(null), 2000)
+  }
+
+  async function handleCheckStatus() {
+    const ok = await checkMonthlyMigration()
+    if (ok) {
+      setResult({ success: true, message: 'Migration detected! Reloading...' })
+      setTimeout(onMigrationApplied, 1000)
+    } else {
+      setResult({ error: 'Step 1 not yet applied. The month_number column was not found.' })
+    }
+  }
+
+  return (
+    <div className="mb-4 rounded-lg border-2 border-amber-500/50 bg-amber-500/5 p-4">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+        <div className="flex-1 space-y-3">
+          <div>
+            <h3 className="font-semibold text-amber-500">Database Migration Required</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              The Lifecycle tab needs a two-step database migration. Each step must be run separately in the Supabase SQL Editor (new enum values must be committed before they can be referenced).
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-600 text-xs font-bold text-white">1</span>
+              <p className="text-sm text-muted-foreground flex-1">Add the enum value and column</p>
+              <button
+                onClick={() => handleCopy(1)}
+                className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/50 shrink-0"
+              >
+                {copiedStep === 1 ? 'Copied!' : 'Copy Step 1 SQL'}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-600 text-xs font-bold text-white">2</span>
+              <p className="text-sm text-muted-foreground flex-1">Backfill monthly experience rows</p>
+              <button
+                onClick={() => handleCopy(2)}
+                className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted/50 shrink-0"
+              >
+                {copiedStep === 2 ? 'Copied!' : 'Copy Step 2 SQL'}
+              </button>
+            </div>
+
+            <div className="border-t border-border pt-3">
+              <button
+                onClick={handleCheckStatus}
+                className="rounded-md bg-amber-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+              >
+                Check Migration Status
+              </button>
+            </div>
+          </div>
+
+          {result && (
+            <div className={`text-sm rounded-md px-3 py-2 ${result.success ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+              {result.success ? result.message : result.error}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

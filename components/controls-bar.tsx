@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type {
   StatusFilter,
   SortOption,
@@ -46,13 +46,19 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: 'failed', label: 'Failed' },
 ]
 
-const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+const ACTIVE_SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: 'name_asc', label: 'Name A→Z' },
   { value: 'name_desc', label: 'Name Z→A' },
   { value: 'next_active_deadline', label: 'Next Active Deadline' },
   { value: 'deadline_hour24', label: 'Next 24-Hour deadline' },
   { value: 'deadline_day14', label: 'Next 14-Day deadline' },
   { value: 'deadline_day30', label: 'Next 30-Day deadline' },
+]
+
+const ONGOING_SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'name_asc', label: 'Name A→Z' },
+  { value: 'name_desc', label: 'Name Z→A' },
+  { value: 'next_monthly_deadline', label: 'Next Monthly Deadline' },
 ]
 
 export function ControlsBar({
@@ -70,22 +76,26 @@ export function ControlsBar({
   const [importDialogOpen, setImportDialogOpen] = useState(false)
 
   const isArchived = activeTab === 'archived'
+  const isOngoing = activeTab === 'lifecycle'
+
+  const sortOptions = useMemo(() => {
+    if (isOngoing) return ONGOING_SORT_OPTIONS
+    return ACTIVE_SORT_OPTIONS
+  }, [isOngoing])
 
   return (
     <div className="space-y-3 pb-4">
       <div className="flex flex-wrap items-center gap-3">
-        {/* Search */}
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder={isArchived ? 'Search archived clients...' : 'Search clients...'}
+            placeholder={isArchived ? 'Search archived clients...' : isOngoing ? 'Search lifecycle clients...' : 'Search clients...'}
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             className="pl-9 h-9"
           />
         </div>
 
-        {/* Status filter dropdown */}
         {!isArchived && (
           <Select value={statusFilter} onValueChange={(v) => onStatusFilterChange(v as StatusFilter)}>
             <SelectTrigger className="w-[130px] h-9 text-xs">
@@ -101,7 +111,6 @@ export function ControlsBar({
           </Select>
         )}
 
-        {/* Sort + actions */}
         <div className="flex items-center gap-2 ml-auto">
           {!isArchived && (
             <Select value={sortOption} onValueChange={(v) => onSortChange(v as SortOption)}>
@@ -109,7 +118,7 @@ export function ControlsBar({
                 <SelectValue placeholder="Sort by..." />
               </SelectTrigger>
               <SelectContent>
-                {SORT_OPTIONS.map((opt) => (
+                {sortOptions.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value} className="text-xs">
                     {opt.label}
                   </SelectItem>
@@ -130,24 +139,26 @@ export function ControlsBar({
                 Calendar View
               </Button>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="text-xs">
-                    <MoreHorizontal className="h-3.5 w-3.5 mr-1.5" />
-                    Actions
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setAddDialogOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Client
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
-                    <Upload className="h-4 w-4 mr-2" />
-                    Import JSON
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {!isOngoing && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="text-xs">
+                      <MoreHorizontal className="h-3.5 w-3.5 mr-1.5" />
+                      Actions
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => setAddDialogOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Client
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Import JSON
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </>
           )}
         </div>

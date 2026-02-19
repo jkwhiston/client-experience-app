@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { format, parseISO } from 'date-fns'
 import type { ClientWithExperiences, ClientExperience, ExperienceStatus } from '@/lib/types'
-import { EXPERIENCE_LABELS, EXPERIENCE_TYPES } from '@/lib/types'
+import { EXPERIENCE_TYPES, getExperienceLabel } from '@/lib/types'
 import {
   getEffectiveDueDate,
   getDueAtEffective,
@@ -48,6 +48,7 @@ interface ExperienceDetailModalProps {
   client: ClientWithExperiences
   experience: ClientExperience
   now: Date
+  isActiveStage?: boolean
   onOpenNotes: () => void
   updateClientLocal: (
     clientId: string,
@@ -61,6 +62,7 @@ export function ExperienceDetailModal({
   client,
   experience,
   now,
+  isActiveStage = true,
   onOpenNotes,
   updateClientLocal,
 }: ExperienceDetailModalProps) {
@@ -91,11 +93,11 @@ export function ExperienceDetailModal({
   const [completionInput, setCompletionInput] = useState('')
 
   const expType = experience.experience_type
-  const label = EXPERIENCE_LABELS[expType]
+  const label = getExperienceLabel(experience)
 
   const dueAt = useMemo(
     () => getEffectiveDueDate(experience, client.signed_on_date),
-    [client.signed_on_date, experience.custom_due_at, experience.experience_type]
+    [client.signed_on_date, experience.custom_due_at, experience.experience_type, experience.month_number]
   )
   const dueAtEffective = useMemo(
     () => getDueAtEffective(dueAt, client.paused_total_seconds),
@@ -182,6 +184,17 @@ export function ExperienceDetailModal({
         }
       case 'pending':
       default:
+        if (!isActiveStage) {
+          return {
+            countdown: formatDuration(secondsRemaining),
+            subtitle: 'Time remaining',
+            statusLabel: 'Pending',
+            colorClass: 'text-muted-foreground',
+            borderClass: 'border-muted-foreground/50',
+            bgClass: 'bg-muted/30',
+            icon: <Clock className="h-5 w-5 text-muted-foreground" />,
+          }
+        }
         return {
           countdown: formatDuration(secondsRemaining),
           subtitle: 'Time remaining',
@@ -192,7 +205,7 @@ export function ExperienceDetailModal({
           icon: <Clock className="h-5 w-5 text-blue-500" />,
         }
     }
-  }, [derivedStatus, secondsRemaining, experience.status, relativeTiming])
+  }, [derivedStatus, secondsRemaining, experience.status, relativeTiming, isActiveStage])
 
   function parseDateInput(value: string): Date | null {
     const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
@@ -377,13 +390,24 @@ export function ExperienceDetailModal({
     ]
 
     // When marking as done, find earlier pending nodes to auto-fail
-    const thisIdx = EXPERIENCE_TYPES.indexOf(expType)
-    const earlierPending = newStatus === 'yes'
-      ? client.client_experiences.filter((e) => {
+    let earlierPending: ClientExperience[] = []
+    if (newStatus === 'yes') {
+      if (expType === 'monthly') {
+        earlierPending = client.client_experiences.filter((e) =>
+          e.experience_type === 'monthly' &&
+          e.month_number != null &&
+          experience.month_number != null &&
+          e.month_number < experience.month_number &&
+          e.status === 'pending'
+        )
+      } else {
+        const thisIdx = EXPERIENCE_TYPES.indexOf(expType)
+        earlierPending = client.client_experiences.filter((e) => {
           const eIdx = EXPERIENCE_TYPES.indexOf(e.experience_type)
-          return eIdx < thisIdx && e.status === 'pending'
+          return eIdx >= 0 && eIdx < thisIdx && e.status === 'pending'
         })
-      : []
+      }
+    }
 
     // Add earlier pending to snapshot before changes
     for (const ep of earlierPending) {

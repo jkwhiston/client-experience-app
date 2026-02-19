@@ -146,7 +146,7 @@
 
 @keyframes today-cell-pulse {
   0%, 100% { background-color: transparent; }
-  50%      { background-color: rgba(59,130,246,0.12); }
+  50%      { background-color: rgba(251,191,36,0.18); }
 }
 
 .animate-today-pulse { animation: today-cell-pulse 4s ease-in-out infinite; }

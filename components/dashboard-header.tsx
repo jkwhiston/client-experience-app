@@ -32,12 +32,20 @@ export function DashboardHeader({
       <div className="flex items-center gap-2">
         <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
           <Button
-            variant={activeTab === 'active' ? 'default' : 'ghost'}
+            variant={activeTab === 'onboarding' ? 'default' : 'ghost'}
             size="sm"
-            onClick={() => onActiveTabChange('active')}
+            onClick={() => onActiveTabChange('onboarding')}
             className="text-xs"
           >
-            Active
+            Onboarding
+          </Button>
+          <Button
+            variant={activeTab === 'lifecycle' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => onActiveTabChange('lifecycle')}
+            className="text-xs"
+          >
+            Lifecycle
           </Button>
           <Button
             variant={activeTab === 'archived' ? 'default' : 'ghost'}

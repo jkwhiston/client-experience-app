@@ -1,10 +1,18 @@
 # Developer Documentation — Client Experience Tracking App
 
-> Last updated: February 18, 2026
+> Last updated: February 19, 2026 (evening)
 
 ## Overview
 
-A Next.js web app for tracking three time-based client milestones: **24-Hour**, **14-Day**, and **30-Day** experiences. Each client has deadlines calculated from their signed-on date. The UI shows a horizontal timeline stepper per client with live countdowns, status indicators, and interactive modals for managing status and notes.
+A Next.js web app for tracking time-based client milestones. The **Onboarding** tab tracks three initial onboarding milestones: **24-Hour**, **14-Day**, and **30-Day** experiences. The **Lifecycle** tab tracks recurring **monthly** post-30-day experiences (months 2–18, i.e. 1.5 years from sign-on). Each client has deadlines calculated from their signed-on date. The UI shows a horizontal timeline stepper per client with live countdowns, status indicators, and interactive modals for managing status and notes.
+
+### Page vs. Node Naming Convention
+
+The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previously named "Active", "Ongoing", and "Archived"). The term **"Active"** is still used to describe experience *nodes* — i.e., the current pending/in-progress experience node on a client's timeline is called the "active" node, regardless of which page it appears on. So a client on the Lifecycle page still has an "active" monthly experience node. In code:
+
+- **Tab/page values**: `ActiveTab = 'onboarding' | 'lifecycle' | 'archived'` — these are the page identifiers.
+- **Experience node terminology**: "Active stage", "active deadline", `isActiveStage`, `getActiveStage()`, `getNextActiveDeadline()` — these refer to the currently-pending experience node, not the page.
+- **Internal variable names**: Some internal variables still use legacy naming (e.g., `isOngoing`, `ongoingSummaryOpen`, `OngoingSummaryRow`, `computeOngoingSummaryCounts`) for the Lifecycle tab. These are code-internal and do not appear in the UI. The `ongoing-summary-row.tsx` filename and component name are also unchanged.
 
 ---
 
@@ -28,44 +36,54 @@ A Next.js web app for tracking three time-based client milestones: **24-Hour**, 
 
 ```
 ├── app/
-│   ├── api/auth/route.ts        # POST login / DELETE logout
-│   ├── globals.css              # Tailwind + CSS theme variables + pulse animations
-│   ├── layout.tsx               # Root layout (ThemeProvider, fonts)
-│   ├── login/page.tsx           # Password auth page
-│   └── page.tsx                 # Home — renders ClientDashboard
+│   ├── api/
+│   │   ├── auth/route.ts          # POST login / DELETE logout
+│   │   └── migrate/route.ts       # GET migration info / POST apply migration via pg
+│   ├── globals.css                # Tailwind + CSS theme variables + pulse animations
+│   ├── layout.tsx                 # Root layout (ThemeProvider, fonts)
+│   ├── login/page.tsx             # Password auth page
+│   └── page.tsx                   # Home — renders ClientDashboard
 ├── components/
-│   ├── add-client-dialog.tsx    # Dialog to add a new client
-│   ├── calendar-day-cell.tsx    # Calendar day cell with status-colored deadline chips
-│   ├── calendar-modal.tsx       # Calendar modal: monthly grid, navigation, detail modal integration
-    │   ├── client-dashboard.tsx     # Top-level dashboard (state, filters, sorting)
-    │   ├── client-list.tsx          # Renders list of ClientRow components
-    │   ├── client-row.tsx           # Single client row: info + timeline stepper + delete
-    │   ├── controls-bar.tsx         # Search, filter dropdown, sort dropdown, Calendar View button, Actions dropdown (add/import)
-    │   ├── import-clients-dialog.tsx # JSON import dialog with schema copy + validation
-│   ├── dashboard-header.tsx     # Header: title, Active/Archived tabs, theme toggle, sign out
-│   ├── experience-detail-modal.tsx  # Detail modal: countdown hero, editable sign-on date, status dropdown
-│   ├── focus-tabs.tsx           # (unused) Focus tabs — removed from UI, file retained
-│   ├── notes-modal.tsx          # Markdown notes editor with auto-save
-│   ├── summary-row.tsx          # Summary cards showing counts per experience type
-│   ├── theme-provider.tsx       # next-themes wrapper
-│   ├── theme-toggle.tsx         # Dark/light toggle button
-│   ├── timeline-node.tsx        # Timeline node: circle + countdown + hover actions
-│   └── ui/                      # shadcn/ui primitives (alert-dialog, badge, button,
-    │                                #   calendar, card, dialog, dropdown-menu, input,
-    │                                #   label, popover, select, tabs, textarea, tooltip)
+│   ├── add-client-dialog.tsx      # Dialog to add a new client
+│   ├── calendar-day-cell.tsx      # Calendar day cell with status-colored deadline chips
+│   ├── calendar-modal.tsx         # Calendar modal: monthly grid, navigation, detail modal integration
+│   ├── client-dashboard.tsx       # Top-level dashboard (state, filters, sorting, MigrationBanner)
+│   ├── client-list.tsx            # Renders list of ClientRow components
+│   ├── client-row.tsx             # Single client row: info + timeline stepper + delete
+│   ├── controls-bar.tsx           # Search, filter dropdown, sort dropdown, Calendar View, Actions dropdown
+│   ├── import-clients-dialog.tsx  # JSON import dialog with schema copy + validation
+│   ├── dashboard-header.tsx       # Header: title, Onboarding/Lifecycle/Archived tabs, theme toggle, sign out
+│   ├── experience-detail-modal.tsx # Detail modal: countdown hero, editable sign-on date, status dropdown
+│   ├── focus-tabs.tsx             # (unused) Focus tabs — removed from UI, file retained
+│   ├── monthly-history-modal.tsx  # Modal listing all experiences: 3 onboarding + 17 monthly (months 2–18)
+│   ├── notes-modal.tsx            # Markdown notes editor with auto-save
+│   ├── ongoing-summary-row.tsx    # Summary cards for Lifecycle tab (Up to Date, Due Soon, Overdue, Completion Rate)
+│   ├── summary-row.tsx           # Summary cards showing counts per experience type (Onboarding tab)
+│   ├── theme-provider.tsx         # next-themes wrapper
+│   ├── theme-toggle.tsx           # Dark/light toggle button
+│   ├── timeline-node.tsx          # Timeline node: circle + countdown + hover actions
+│   └── ui/                        # shadcn/ui primitives (alert-dialog, badge, button, calendar,
+│                                  #   card, context-menu, dialog, dropdown-menu, input, label,
+│                                  #   popover, select, tabs, textarea, tooltip)
 ├── lib/
-│   ├── deadlines.ts             # All deadline math, formatting, status derivation
-│   ├── client-fonts.ts           # Per-client Google Font assignment (hash-based)
-    │   ├── queries.ts               # Supabase CRUD (fetchClients, createClient, updateClient, updateExperience, deleteClient)
-    │   ├── types.ts                 # TypeScript types & constants
-│   ├── utils.ts                 # cn() utility (clsx + tailwind-merge)
+│   ├── deadlines.ts               # All deadline math, formatting, status derivation
+│   ├── client-fonts.ts            # Per-client Google Font assignment (hash-based)
+│   ├── queries.ts                 # Supabase CRUD + migration check + monthly backfill
+│   ├── types.ts                   # TypeScript types & constants
+│   ├── utils.ts                   # cn() utility (clsx + tailwind-merge)
 │   └── supabase/
-│       ├── client.ts            # Browser Supabase client
-│       ├── middleware.ts        # Session refresh middleware
-│       └── server.ts            # Server Supabase client
-├── middleware.ts                # Next.js middleware (Supabase session)
-├── BUILD_SPEC.md                # Original build specification
-├── REDISGN_SPEC.md              # Timeline redesign specification
+│       ├── client.ts              # Browser Supabase client
+│       ├── middleware.ts          # Session refresh middleware
+│       └── server.ts             # Server Supabase client
+├── scripts/
+│   └── apply-migration.mjs       # CLI script to apply monthly migration via direct pg connection
+├── supabase/
+│   └── migrations/
+│       ├── 20260219_add_monthly_experiences.sql  # Two-step migration for monthly experiences
+│       └── 20260219_add_flag_color.sql           # Add flag_color column to clients
+├── middleware.ts                  # Next.js middleware (Supabase session)
+├── BUILD_SPEC.md                  # Original build specification
+├── REDISGN_SPEC.md                # Timeline redesign specification
 └── package.json
 ```
 
@@ -86,35 +104,63 @@ A Next.js web app for tracking three time-based client milestones: **24-Hour**, 
 | paused               | boolean      | Default false                  |
 | pause_started_at     | timestamptz  | Nullable                       |
 | paused_total_seconds | int          | Default 0                      |
+| flag_color           | text         | Nullable; color key for row flag (e.g. 'red', 'blue') |
 | created_at           | timestamptz  |                                |
 | updated_at           | timestamptz  |                                |
 
 **`client_experiences`**
-| Column           | Type                          | Notes                          |
-|------------------|-------------------------------|--------------------------------|
-| id               | uuid (PK)                     |                                |
-| client_id        | uuid (FK -> clients)          |                                |
-| experience_type  | 'hour24' \| 'day14' \| 'day30' |                               |
-| status           | 'pending' \| 'yes' \| 'no'   | DB-level status                |
-| completed_at     | timestamptz                   | Nullable; set on completion    |
-| custom_due_at    | timestamptz                   | Nullable; overrides default computed deadline |
-| notes            | text                          | Markdown content               |
-| todos            | jsonb                         | Default `'[]'`; array of `{ id, text, done }` |
-| created_at       | timestamptz                   |                                |
-| updated_at       | timestamptz                   |                                |
+| Column           | Type                                          | Notes                          |
+|------------------|-----------------------------------------------|--------------------------------|
+| id               | uuid (PK)                                     |                                |
+| client_id        | uuid (FK -> clients)                          |                                |
+| experience_type  | 'hour24' \| 'day14' \| 'day30' \| 'monthly'  |                                |
+| month_number     | integer                                       | Nullable; 2–18 for monthly experiences, null for initial types |
+| status           | 'pending' \| 'yes' \| 'no'                   | DB-level status                |
+| completed_at     | timestamptz                                   | Nullable; set on completion    |
+| custom_due_at    | timestamptz                                   | Nullable; overrides default computed deadline |
+| notes            | text                                          | Markdown content               |
+| todos            | jsonb                                         | Default `'[]'`; array of `{ id, text, done }` |
+| created_at       | timestamptz                                   |                                |
+| updated_at       | timestamptz                                   |                                |
+
+Each client has **20 experience rows** total: 3 initial (hour24, day14, day30) + 17 monthly (months 2–18). Monthly rows use `experience_type = 'monthly'` with `month_number` set to the month ordinal.
+
+**Unique constraint**: The `client_experiences` table has a unique index on `(client_id, experience_type, COALESCE(month_number, 0))`. This allows one row per initial experience type (where `month_number` is NULL → coalesced to 0) and one row per monthly month_number per client.
 
 ### TypeScript Types (`lib/types.ts`)
 
 ```typescript
-type ExperienceType = 'hour24' | 'day14' | 'day30'
+type ExperienceType = 'hour24' | 'day14' | 'day30' | 'monthly'
 type ExperienceStatus = 'pending' | 'yes' | 'no'        // DB values
 type DerivedStatus = 'pending' | 'done' | 'done_late' | 'failed'  // Display values
+type ActiveTab = 'onboarding' | 'lifecycle' | 'archived'
 
 interface TodoItem { id: string; text: string; done: boolean }
 
-interface ClientWithExperiences extends Client {
-  client_experiences: ClientExperience[]  // each has notes: string, todos: TodoItem[]
+interface Client {
+  // ...standard fields (id, name, signed_on_date, is_archived, paused, etc.)...
+  flag_color: string | null     // color key from FLAG_COLORS, e.g. 'red', 'blue'
 }
+
+interface ClientExperience {
+  // ...standard fields...
+  experience_type: ExperienceType
+  month_number: number | null  // 2–18 for monthly, null for initial
+}
+
+interface ClientWithExperiences extends Client {
+  client_experiences: ClientExperience[]
+}
+
+// Constants
+const EXPERIENCE_TYPES: ExperienceType[] = ['hour24', 'day14', 'day30']          // Initial types only
+const INITIAL_EXPERIENCE_TYPES: ExperienceType[] = ['hour24', 'day14', 'day30']  // Alias for clarity
+const MONTHLY_MONTH_RANGE = { min: 2, max: 18 }                                  // 17 months (1.5 years)
+const FLAG_COLORS: { key: string; label: string; rgb: string }[]                 // 7-color palette for row flags
+
+// Helpers
+getMonthlyLabel(monthNumber) => "2-Month", "3-Month", etc.
+getExperienceLabel(experience) => label for any experience (initial or monthly)
 ```
 
 ### Status Derivation Logic (`getDerivedStatus` in `lib/deadlines.ts`)
@@ -137,12 +183,17 @@ The DB stores simple status values. The UI derives display status:
 
 All deadline logic is centralized here. Key concepts:
 
-- **Firm Timezone**: All calculations use a configured timezone constant (`America/Chicago`).
-- **`getDueAt(signedOnDate, expType)`**: Returns the raw deadline Date for a given experience type.
+- **Firm Timezone**: All calculations use a configured timezone constant (defaults to `America/New_York`, configurable via `NEXT_PUBLIC_FIRM_TIMEZONE`).
+- **`getDueAt(signedOnDate, expType, firmTz, monthNumber?)`**: Returns the raw deadline Date for a given experience type. For `'monthly'` type, uses `addMonths(baseDate, monthNumber)` from date-fns for proper month-length handling (e.g. Jan 31 + 1 month = Feb 28). All deadlines are 11:59 PM in the firm timezone.
+- **`getEffectiveDueDate(experience, signedOnDate)`**: Uses `custom_due_at` if set, otherwise calls `getDueAt`. Reads `month_number` from the experience object for monthly types.
 - **`getDueAtEffective(dueAt, pausedTotalSeconds)`**: Adjusts the deadline forward by the total paused seconds.
 - **`getNowEffective(client, now)`**: If the client is paused, freezes "now" at the pause start time.
-- **`getActiveStage(client, now)`**: Returns the first experience type that is `pending` or `failed` (the current active milestone).
-- **`getNextActiveDeadline(client)`**: Returns the nearest effective deadline `Date` across all experience types where `exp.status === 'pending'` (DB status, not derived). Returns `null` if no active deadlines remain. Used by the "Next Active Deadline" sort option.
+- **`getActiveStage(client, now)`**: Returns the first *initial* experience type that is `pending` or `failed` (the current active milestone). Only checks hour24/day14/day30.
+- **`getActiveStageMonthly(client, now)`**: Returns the `month_number` of the first *monthly* experience that is `pending` or `failed`, or null if all are done. **Gated**: returns `null` immediately if the client's `day30` experience still has DB status `'pending'`, so lifecycle nodes stay inactive until onboarding is resolved.
+- **`getNextActiveDeadline(client)`**: Returns the nearest effective deadline `Date` across initial experience types where `exp.status === 'pending'`. Used by the "Next Active Deadline" sort option.
+- **`getNextMonthlyDeadline(client)`**: Same as above but for monthly experiences. Used by the "Next Monthly Deadline" sort option.
+- **`getMonthlyExperiences(client)`**: Returns all monthly experiences for a client sorted by `month_number` ascending.
+- **`getVisibleMonthlyExperiences(client, now)`**: Sliding window — returns the 3 monthly experiences to display in the Lifecycle tab. Logic: (1) find first pending/failed monthly experience, show it + next 2; (2) if all complete, show last 3; (3) if too new, show months 2, 3, 4.
 
 #### Formatting Functions
 
@@ -161,23 +212,36 @@ All deadline logic is centralized here. Key concepts:
 ```
 app/page.tsx
   └── ClientDashboard
-        ├── DashboardHeader (Active/Archived tabs, theme toggle, sign out)
+        ├── DashboardHeader (Onboarding/Lifecycle/Archived tabs, theme toggle, sign out)
+        ├── SummaryRow (aggregate counts — Onboarding tab only)
+        ├── OngoingSummaryRow (Up to Date / Due Soon / Overdue / Completion Rate — Lifecycle tab only)
         ├── ControlsBar (search, filter dropdown, sort dropdown, Calendar View, Actions dropdown)
-        ├── SummaryRow (aggregate counts)
+        │     Sort options adapt per tab: Onboarding has deadline sorts, Lifecycle has "Next Monthly Deadline"
         ├── ClientList
-        │     └── ClientRow (one per client)
-        │           ├── [Client info: name, date, pause/archive controls]
-        │           ├── [Timeline track: dotted bg line + colored progress overlay]
-        │           └── TimelineNode × 3 (one per experience type)
-        │                 ├── [Circle with status indicator]
-        │                 ├── [Hover actions: Notes icon, Mark done]
-        │                 ├── NotesModal (opened via Notes icon)
-        │                 └── ExperienceDetailModal (opened via circle click)
+│     └── ClientRow (one per client, wrapped in ContextMenu for flag colors)
+│           ├── [Client info: name, date, pause/archive controls]
+│           ├── [History button — Lifecycle tab only, opens MonthlyHistoryModal]
+│           ├── [Flag gradient background — optional, set via right-click context menu]
+│           ├── [Timeline track: dotted bg line + colored progress overlay]
+        │           └── TimelineNode × 3
+        │           │     Onboarding tab: one per initial type (hour24, day14, day30)
+        │           │     Lifecycle tab: 3 monthly experiences from getVisibleMonthlyExperiences()
+        │           │     ├── [Circle with status indicator]
+        │           │     ├── [Hover actions: Notes icon, Mark done]
+        │           │     ├── NotesModal (opened via Notes icon)
+        │           │     └── ExperienceDetailModal (opened via circle click)
+        │           └── MonthlyHistoryModal (Lifecycle tab only)
+        │                 ├── [Onboarding section: 3 initial experiences with left accent bar]
+        │                 ├── [Divider line]
+        │                 ├── [Lifecycle section: all 17 monthly experiences with status indicators]
+        │                 └── [Clickable rows open ExperienceDetailModal]
         └── CalendarModal (opened via Calendar button in ControlsBar)
-              ├── [Header: month/year, prev/next/today nav, show-completed toggle, close]
+              ├── [Header: month/year, prev/next/today nav, show-completed toggle, show-lifecycle toggle, close]
               └── CalendarDayCell × 28-42 (7-column grid, dynamic row count)
                     ├── [Day number with today highlight pulse]
                     └── [Deadline chips: clickable, status-colored]
+                    │     Initial chips: "24h", "14d", "30d"
+                    │     Monthly chips: "2mo", "5mo", etc. (dynamic based on month_number)
                           ├── ExperienceDetailModal (reused, opened on chip click)
                           └── NotesModal (reused, opened from detail modal)
 ```
@@ -203,6 +267,7 @@ The timeline is a horizontal stepper with three nodes connected by a track:
   - **Active/Late** (110px circle): Live two-line countdown with seconds, due date inside. Blue border + pulse animation (pending) or red border + pulse animation (late). CSS `animate-pulse-blue` / `animate-pulse-red` provides a subtle breathing glow effect; animation is removed on hover (`animation: none`) so the static `group-hover` ring/shadow takes over.
   - **Done** (44px circle): Green checkmark (on-time) or amber checkmark (done late), "Completed [date]" below.
   - **Future** (48px circle, `h-12 w-12`): Stacked two-line countdown inside (`formatDurationCompact` returns `{ line1, line2 }`), `border-2 border-border`, "Due: [date]" below.
+  - **Inactive Overdue** (48px circle): Overdue nodes that are not the active stage — e.g., unarchived clients returning to the pipeline. Red border (`border-red-500/60`), compact late duration inside in muted red, due date below in `text-red-500/60`. Label styled `text-red-400/70`.
   - All circle backgrounds use opaque `bg-card` so the track line does not show through. Borders are fully opaque.
 
 - **Pulse Animation** (in `app/globals.css`): Two `@keyframes` (`pulse-blue`, `pulse-red`) animate `box-shadow` with ring spread (3px–5px) and outer glow. Applied via `.animate-pulse-blue` / `.animate-pulse-red` classes on active node circles. A `.group:hover` CSS rule sets `animation: none` to cleanly hand off to the static Tailwind hover glow.
@@ -260,7 +325,9 @@ Status changes for completed items are done through the Detail Modal's dropdown.
 - **Optimistic updates**: `updateClientLocal` callback passed down the tree. Updates local state immediately, then fires async Supabase mutation (`updateExperience`, `updateClient`).
 - **Live countdowns**: The dashboard passes a `now` Date prop that ticks every second, causing timer re-renders.
 - **Focus mode** (removed): `FocusTabs` were removed from the UI. `focusTab` is now a constant `'overview'` in `ClientDashboard`. The `isFocusMode` / `isFocused` props still exist on child components but `isFocusMode` is always `false`.
-- **Filters/Sort**: Managed in `ClientDashboard`, applied before rendering `ClientList`. Status filter is a `Select` dropdown in `ControlsBar` (All, Pending, Done, Late, Failed). Deadline sort options (`deadline_hour24`, `deadline_day14`, `deadline_day30`, `next_active_deadline`) both filter and sort — they remove clients with no active (DB `pending`) deadline for that experience type, then sort by deadline nearest-first. `sortOption` is passed to `ClientList` so it can display context-aware empty states.
+- **Filters/Sort**: Managed in `ClientDashboard`, applied before rendering `ClientList`. Status filter is a `Select` dropdown in `ControlsBar` (All, Pending, Done, Late, Failed). On the **Onboarding** tab, deadline sort options (`deadline_hour24`, `deadline_day14`, `deadline_day30`, `next_active_deadline`) both filter and sort — they remove clients with no active (DB `pending`) deadline for that experience type, then sort by deadline nearest-first. On the **Lifecycle** tab, available sorts are Name A→Z, Name Z→A, and "Next Monthly Deadline" (`next_monthly_deadline`). `sortOption` resets to `name_asc` when switching tabs if the current sort is invalid for the new tab. `sortOption` is passed to `ClientList` so it can display context-aware empty states.
+- **Lifecycle tab state**: When `activeTab === 'lifecycle'`, the dashboard shows non-archived clients (same as Onboarding), but each `ClientRow` renders in "lifecycle mode" — using `getVisibleMonthlyExperiences()` for the 3-node sliding window instead of the initial 3 types. Lifecycle summary counts (`OngoingSummaryRow`) are computed via `computeOngoingSummaryCounts` (a `useMemo`) which iterates monthly experiences to derive Up to Date / Due Soon / Overdue / Completion Rate.
+- **Client backfill**: On initial load, `backfillMonthlyExperiences()` is called after `fetchClients()` to create missing monthly experience rows for clients created before the Lifecycle feature was added. This is gated behind `checkMonthlyMigration()`, which probes for the `month_number` column; if the migration hasn't been applied, the backfill is skipped and a `MigrationBanner` is shown on the Lifecycle tab instead.
 
 ---
 
@@ -278,7 +345,11 @@ Simple password-based auth (no user accounts):
 Required in `.env.local`:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- Any auth-related secrets per your setup
+- `APP_PASSWORD` — password for the simple auth system
+
+Optional:
+- `DATABASE_URL` — PostgreSQL connection string for the `/api/migrate` endpoint (can also be provided at runtime via the request body)
+- `NEXT_PUBLIC_FIRM_TIMEZONE` — timezone for deadline calculations (defaults to `America/New_York`)
 
 ---
 
@@ -406,7 +477,7 @@ Required in `.env.local`:
 
 4. **Weekend column shading** (`components/calendar-modal.tsx`, `components/calendar-day-cell.tsx`) — Sunday and Saturday columns have a slightly lighter background (`bg-muted/25` on day cells, `bg-muted/60` on headers) compared to weekday columns, making weekends visually distinguishable.
 
-5. **Today cell pulse animation** (`app/globals.css`, `components/calendar-day-cell.tsx`) — Today's entire cell has a slow breathing pulse (`today-cell-pulse` keyframe, 4s cycle) that fades between fully transparent and a subtle blue tint (`rgba(59,130,246,0.12)`), making it stand out at a glance.
+5. **Today cell pulse animation** (`app/globals.css`, `components/calendar-day-cell.tsx`) — Today's entire cell has a slow breathing pulse (`today-cell-pulse` keyframe, 4s cycle) that fades between fully transparent and a warm amber/gold tint (`rgba(251,191,36,0.18)`), making it stand out at a glance against the dark calendar background.
 
 6. **Outside-month cell styling** (`app/globals.css`, `components/calendar-day-cell.tsx`) — Days from adjacent months use a `.calendar-outside-month` CSS class with a dark background overlay (`rgba(6,10,20,0.75)`) and an inset box-shadow (`inset 0 0 30px 14px rgba(0,0,0,0.85)`) that darkens from the edges inward, giving a recessed/sunken look clearly distinct from both weekday and weekend cells.
 
@@ -423,6 +494,155 @@ Required in `.env.local`:
 4. **Prominent Calendar View button** (`components/controls-bar.tsx`) — Changed from `variant="outline"` to `variant="default"` (primary/filled) and renamed label from "Calendar" to "Calendar View" so it stands out from the other controls.
 
 5. **Removed `focusTab` prop from ControlsBar** (`components/controls-bar.tsx`) — The `FocusTab` type import and `focusTab` prop were removed from the `ControlsBarProps` interface since the component never used it internally.
+
+### Ongoing Experiences Feature (Feb 18, 2026)
+
+Added a full **"Lifecycle"** tab (originally named "Ongoing", renamed Feb 19) for tracking monthly post-30-day experiences (months 2–18 = 1.5 years from sign-on). The tab sits between Onboarding and Archived: **Onboarding | Lifecycle | Archived**. Monthly experience labels are "2-Month", "3-Month", ... "18-Month".
+
+#### Database & Migration
+
+1. **Migration** (`supabase/migrations/20260219_add_monthly_experiences.sql`) — A two-step migration (must be run as separate transactions in the Supabase SQL Editor because PostgreSQL requires new enum values to be committed before they can be referenced in queries):
+   - **Step 1**: `ALTER TYPE experience_type ADD VALUE IF NOT EXISTS 'monthly'` + `ALTER TABLE client_experiences ADD COLUMN IF NOT EXISTS month_number integer`.
+   - **Step 2**: Drops the old unique constraint `client_experiences_client_id_experience_type_key` (which was on `(client_id, experience_type)` and only allowed one row per type per client), creates a new unique index on `(client_id, experience_type, COALESCE(month_number, 0))` to allow 17 monthly rows per client, then backfills 17 monthly rows (months 2–18) for all existing clients via `INSERT ... SELECT ... CROSS JOIN generate_series(2, 18)`.
+
+1b. **Migration API** (`app/api/migrate/route.ts`) — A Next.js API route that can apply the migration programmatically. `GET` returns the SQL and instructions. `POST` with `{ "databaseUrl": "postgresql://..." }` connects via the `pg` library, runs Step 1 in one connection (so the enum value is committed), then Step 2 in a second connection.
+
+1c. **Migration CLI script** (`scripts/apply-migration.mjs`) — A standalone Node.js script that tries multiple Supabase connection endpoints (pooler session/transaction across regions, direct connection) to find a working database connection. Usage: `DB_PASSWORD=xxx node scripts/apply-migration.mjs`.
+
+1d. **Migration banner** (`MigrationBanner` in `client-dashboard.tsx`) — An in-app banner shown on the Lifecycle tab when `checkMonthlyMigration()` (in `lib/queries.ts`) detects the `month_number` column is missing. The banner provides "Copy Step 1 SQL" and "Copy Step 2 SQL" buttons for manual execution in the Supabase SQL Editor, plus a "Check Migration Status" button. Once the migration is detected as applied, the banner disappears and `loadClients()` is re-triggered.
+
+#### Data Layer
+
+2. **Types** (`lib/types.ts`) — `ExperienceType` extended with `'monthly'`. `ClientExperience` now has `month_number: number | null`. `ActiveTab` extended with `'lifecycle'` (originally `'ongoing'`). `SortOption` extended with `'next_monthly_deadline'`. New constants: `INITIAL_EXPERIENCE_TYPES`, `MONTHLY_MONTH_RANGE`. New helpers: `getMonthlyLabel(monthNumber)` and `getExperienceLabel(experience)` (returns the display label for any experience type, initial or monthly).
+
+3. **Deadlines** (`lib/deadlines.ts`) — `getDueAt()` now accepts optional `monthNumber` param; for `'monthly'` type, uses `addMonths()` from date-fns instead of `addDays()`. `getEffectiveDueDate()` reads `month_number` from the experience object. `getUrgency()` has a new `'monthly'` case with more relaxed thresholds (red <= 3 days, yellow <= 7 days vs red <= 2 days for initial types). New functions: `getMonthlyExperiences()`, `getActiveStageMonthly()`, `getVisibleMonthlyExperiences()` (sliding 3-node window), `getNextMonthlyDeadline()`.
+
+4. **Queries** (`lib/queries.ts`) — `createClientWithExperiences()` now inserts 17 additional monthly rows (months 2–18) alongside the initial 3 (monthly inserts are done separately so they fail silently if the migration hasn't been applied). New `backfillMonthlyExperiences(clients)` function creates missing monthly rows for pre-existing clients at runtime (called on initial load, gated behind `checkMonthlyMigration()`). New `checkMonthlyMigration()` function probes for the `month_number` column to determine if the migration has been applied.
+
+#### UI Components
+
+5. **Tab system** (`components/dashboard-header.tsx`) — Added "Lifecycle" button between Onboarding and Archived in the segmented control.
+
+6. **Dashboard state** (`components/client-dashboard.tsx`) — Handles `'lifecycle'` tab: shows `OngoingSummaryRow` instead of `SummaryRow`, checks migration status on load and conditionally calls `backfillMonthlyExperiences`, shows `MigrationBanner` if migration is pending, computes lifecycle summary counts via `computeOngoingSummaryCounts` (useMemo), passes `activeTab` to `CalendarModal` for default toggle state, resets sort option on tab switch if invalid for the new tab.
+
+7. **Lifecycle summary** (`components/ongoing-summary-row.tsx`) — New component with 4 cards reflecting relationship health rather than strict urgency:
+   - **Up to Date** (emerald): Clients with all due monthly experiences completed.
+   - **Due Soon** (blue): Clients with a monthly experience due within 7 days.
+   - **Overdue** (red): Clients with at least one overdue pending monthly experience.
+   - **Completion Rate** (violet/amber/red depending on %, based on 80%/50% thresholds): Aggregate percentage of completed monthly experiences across all clients.
+   Each count is clickable to filter the client list.
+
+8. **Client row** (`components/client-row.tsx`) — Detects `activeTab === 'lifecycle'` to switch between initial mode (3 fixed types) and lifecycle mode (3 monthly experiences from `getVisibleMonthlyExperiences()`). Renders a History button (clock icon) in the left column when in lifecycle mode, which opens `MonthlyHistoryModal`. Track gradient and segment statuses now take an `exps` array parameter rather than always using `EXPERIENCE_TYPES`, so they adapt to whichever 3 experiences are displayed.
+
+9. **Timeline node** (`components/timeline-node.tsx`) — Uses `getExperienceLabel(experience)` instead of `EXPERIENCE_LABELS[expType]` for the top-zone label, so monthly nodes display "5-Month" etc. `isFuture` determination updated: for monthly, a node is future if it's pending but not the active stage (instead of comparing indices in `EXPERIENCE_TYPES`). Auto-fail logic (marking earlier pending as failed when a later node is marked done) now handles monthly experiences by comparing `month_number` values instead of `EXPERIENCE_TYPES` indices.
+
+10. **Monthly history modal** (`components/monthly-history-modal.tsx`) — New Dialog modal listing all 17 monthly experiences for a client in a scrollable vertical list. Each row shows: status icon (colored: blue pending, green done, amber late, red overdue), month label ("2-Month", "3-Month", ...), status text, due date, and completion date if done. A notes dot indicator appears if the experience has notes. Clicking any row opens `ExperienceDetailModal` for that month, with `NotesModal` accessible from within. Opened via the History button on client rows in the Lifecycle tab.
+
+11. **Experience detail modal** (`components/experience-detail-modal.tsx`) — Uses `getExperienceLabel(experience)` for the header. Auto-fail logic updated to handle monthly experiences (by `month_number` comparison). `dueAt` useMemo dependency array now includes `experience.month_number`.
+
+12. **Notes modal** (`components/notes-modal.tsx`) — Uses `getExperienceLabel(experience)` for the header instead of `EXPERIENCE_LABELS[experience.experience_type]`.
+
+13. **Calendar** (`components/calendar-modal.tsx`, `components/calendar-day-cell.tsx`) — Calendar now accepts an `activeTab` prop. Monthly experiences are included in the event data (alongside initial types). New **"Lifecycle visible/hidden"** toggle button in the calendar header (violet highlight when visible) — defaults to visible when opened from the Lifecycle tab, hidden when opened from Onboarding tab. `CalendarEvent` interface now has optional `monthNumber` field. `CalendarDayCell` generates dynamic short labels for monthly chips (e.g. "5mo") and uses `getExperienceLabel()` for the full tooltip label. Event keys changed from `clientId-experienceType` to `clientId-experienceId` to avoid collisions with multiple monthly experiences.
+
+14. **Controls bar** (`components/controls-bar.tsx`) — Sort options are now tab-aware: Onboarding tab shows the original 6 sort options; Lifecycle tab shows Name A→Z, Name Z→A, and "Next Monthly Deadline". The Actions dropdown (Add Client, Import JSON) is hidden on the Lifecycle tab since clients are managed from the Onboarding tab. Search placeholder adapts per tab ("Search lifecycle clients...").
+
+15. **Client list** (`components/client-list.tsx`) — Added "Monthly" to the deadline sort labels for the "All Complete" empty state. Section heading shows "Lifecycle Clients" when on the Lifecycle tab.
+
+16. **Summary row** (`components/summary-row.tsx`) — `CARD_STYLES` record type narrowed from `Record<ExperienceType, ...>` to `Record<InitialExperienceType, ...>` to avoid a type error now that `ExperienceType` includes `'monthly'`.
+
+#### Migration Notes
+
+The two-step migration is required because of two PostgreSQL constraints:
+
+1. **Enum commit requirement**: `ALTER TYPE ... ADD VALUE` cannot be used in the same transaction that references the new value. The Supabase SQL Editor runs all statements in a single transaction, so Step 1 (DDL) must be committed before Step 2 (DML referencing `'monthly'`).
+
+2. **Unique constraint conflict**: The original unique constraint on `(client_id, experience_type)` only allowed one row per experience type per client, which blocked inserting 17 monthly rows. Step 2 replaces it with a composite index including `COALESCE(month_number, 0)`.
+
+After the migration is applied, `backfillMonthlyExperiences()` handles any future gaps automatically on page load, and `createClientWithExperiences()` creates all 20 experience rows (3 initial + 17 monthly) for new clients. No manual SQL is needed going forward.
+
+### Tab Rename: Active → Onboarding, Ongoing → Lifecycle (Feb 19, 2026)
+
+Renamed the two main tabs for clarity:
+- **"Active" → "Onboarding"** — reflects that this tab tracks the initial onboarding milestones (24-Hour, 14-Day, 30-Day).
+- **"Ongoing" → "Lifecycle"** — reflects that this tab tracks the longer-term monthly relationship milestones.
+
+**What changed**:
+- `ActiveTab` type values in `lib/types.ts`: `'active'` → `'onboarding'`, `'ongoing'` → `'lifecycle'`.
+- All string comparisons across 6 components updated to match the new values.
+- All user-facing labels updated: tab buttons, section headings ("Onboarding Clients", "Lifecycle Clients"), summary headers ("Lifecycle Summaries"), search placeholders, calendar toggle ("Lifecycle visible/hidden"), migration banner text.
+
+**What did NOT change**:
+- The `ActiveTab` type *name* is unchanged (it refers to "which tab is active", not the page called "Active").
+- Experience-node terminology: "active stage", "active deadline", `isActiveStage`, `getActiveStage()`, `getNextActiveDeadline()`, "Next Active Deadline" sort option — all still use "active" to mean the currently-pending experience node.
+- Internal variable names: `isOngoing`, `ongoingSummaryOpen`, `OngoingSummaryRow`, `computeOngoingSummaryCounts`, `ongoing-summary-row.tsx` — these still reference the legacy "ongoing" name. They are code-internal and never appear in the UI.
+
+**Potential confusion points**: If a future change introduces new string comparisons for tab values, use `'onboarding'` / `'lifecycle'` / `'archived'` (not the old `'active'` / `'ongoing'`). The internal variable `isOngoing` checks `activeTab === 'lifecycle'`, which may read oddly but is correct.
+
+### Lifecycle Active Node Gating & Color Consistency (Feb 19, 2026)
+
+1. **Lifecycle nodes gated behind 30-day completion** (`lib/deadlines.ts`) — `getActiveStageMonthly()` now checks whether the client's `day30` experience has been resolved (DB status is `'yes'` or `'no'`, not still `'pending'`) before returning an active monthly stage. If the 30-day experience is still pending, the function returns `null`, causing all monthly nodes on the Lifecycle page to render as small greyed-out inactive/future nodes. Once the 30-day is resolved (completed on time or explicitly failed), the first pending monthly node becomes the active blue node.
+
+2. **Calendar event pills follow active/inactive color logic** (`components/calendar-day-cell.tsx`, `components/calendar-modal.tsx`) — `CalendarEvent` interface now includes `isActive: boolean`. A new `pending_inactive` chip style (grey background, muted text, border-border) is used when `derivedStatus === 'pending' && !isActive`. The calendar modal computes `isActive` per event by calling `getActiveStage()` for onboarding experiences and `getActiveStageMonthly()` for monthly experiences. This means inactive pending nodes (both onboarding and lifecycle) appear grey in the calendar instead of blue.
+
+3. **Detail modal respects active/inactive state** (`components/experience-detail-modal.tsx`) — New optional `isActiveStage` prop (defaults to `true`). When `derivedStatus === 'pending'` and `isActiveStage` is `false`, the countdown hero section uses grey/muted styling instead of blue. This prop is now passed from all three call sites:
+   - `timeline-node.tsx` — passes its existing `isActiveStage` prop through.
+   - `calendar-modal.tsx` — tracks the clicked event's `isActive` flag in state and passes it.
+   - `monthly-history-modal.tsx` — computes from `getActiveStageMonthly()` and passes it.
+
+4. **Monthly history modal active/inactive styling** (`components/monthly-history-modal.tsx`) — `STATUS_STYLES` and `StatusIcon` now support a `pending_inactive` variant with grey styling and a grey clock icon, using the same `getStyleKey(derived, isActive)` pattern. Each row's `isActive` is computed by comparing `exp.month_number` to `getActiveStageMonthly(client, now)`.
+
+5. **Experience history modal includes onboarding** (`components/monthly-history-modal.tsx`) — The modal (still named `MonthlyHistoryModal` internally) now shows all experiences, not just monthly ones. The three initial onboarding experiences (24-Hour, 14-Day, 30-Day) are rendered at the top in a group with a left accent border (`border-l-2 border-muted-foreground/25`), followed by a horizontal divider, then the lifecycle rows. Active/inactive coloring is applied to onboarding rows using `getActiveStage()`. Modal title changed from "Monthly History" to "Experience History". Labels use `EXPERIENCE_LABELS[exp.experience_type]` for onboarding rows and `getMonthlyLabel(exp.month_number)` for lifecycle rows.
+
+### Inactive Overdue Node Display Fix (Feb 19, 2026)
+
+Fixed timeline nodes for experiences that are overdue but not the "active" stage — e.g., when unarchiving clients who were archived before the Lifecycle page existed, their past-due nodes appeared as empty circles with no date or countdown.
+
+1. **New `isInactiveOverdue` state** (`components/timeline-node.tsx`) — A boolean computed as `!isActiveStage && isOverdue`. Previously, these nodes fell through all rendering branches and appeared as blank small circles. With this flag, they now have explicit rendering:
+   - **Circle**: Small (48px) with a red border (`border-red-500/60`) and red hover glow, using opaque `bg-card` background.
+   - **Countdown inside circle**: Shows compact late duration (e.g., "-3mo 12d") in `text-red-500/70` via `formatDurationCompact(secondsRemaining)`.
+   - **Label**: Experience type header styled `text-red-400/70` (muted red) to indicate overdue-but-inactive status.
+   - **Due date below circle**: Shows the due date string in `text-red-500/60`.
+
+2. **`futureCountdown` memo extended** (`components/timeline-node.tsx`) — The memo that computes stacked countdown text (`{ line1, line2 }`) now fires for both `isFuture` and `isInactiveOverdue` nodes, so overdue-inactive nodes display their late duration inside the circle.
+
+### Client Row Flag Colors (Feb 19, 2026)
+
+Added the ability to "flag" a client row with a color, making it visually stand out. The flag color persists across Onboarding and Lifecycle tabs and survives page refreshes (stored in DB).
+
+#### Database
+
+1. **Migration** (`supabase/migrations/20260219_add_flag_color.sql`) — Single statement: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS flag_color text DEFAULT NULL`. Apply via Supabase SQL Editor.
+
+#### Types
+
+2. **`Client` interface** (`lib/types.ts`) — Added `flag_color: string | null`.
+
+3. **`FLAG_COLORS` constant** (`lib/types.ts`) — Array of 7 color options, each with `key` (stored in DB), `label` (display name), and `rgb` (CSS RGB triplet for styling):
+   - Red (`239,68,68`), Orange (`249,115,22`), Amber (`245,158,11`), Green (`34,197,94`), Blue (`59,130,246`), Purple (`168,85,247`), Pink (`236,72,153`).
+
+#### UI
+
+4. **Context menu component** (`components/ui/context-menu.tsx`) — New Shadcn-style wrapper around Radix UI `ContextMenu` primitives, following the same pattern as `dropdown-menu.tsx`. Exports `ContextMenu`, `ContextMenuTrigger`, `ContextMenuContent`, `ContextMenuItem`, `ContextMenuSeparator`.
+
+5. **Client row flagging** (`components/client-row.tsx`) — Right-clicking a client row opens a context menu with:
+   - A "Flag Color" label and a row of 7 color swatches (small circles styled with the `rgb` value from `FLAG_COLORS`). The active flag shows a white `Check` icon overlay.
+   - A "Clear Flag" option (with `X` icon) that appears when a flag is active.
+   - `handleFlagChange(color)` updates the local state optimistically via `updateClientLocal` and persists to Supabase via `updateClient`.
+
+6. **Row gradient styling** (`components/client-row.tsx`) — When a flag is active, the row gets a wave-like gradient background applied via inline `backgroundImage` style:
+   ```
+   linear-gradient(to right,
+     rgba(R,G,B,0.18) 0%,
+     rgba(R,G,B,0.10) 25%,
+     rgba(R,G,B,0.16) 50%,
+     rgba(R,G,B,0.08) 75%,
+     rgba(R,G,B,0.14) 100%)
+   ```
+   The non-uniform opacity stops create a subtle undulating/wave effect across the full row width. The left `w-1` accent strip is also tinted with the flag color at 50% opacity.
+
+### Calendar Today Pulse Color Change (Feb 19, 2026)
+
+1. **Amber/gold pulse** (`app/globals.css`) — The `today-cell-pulse` keyframe animation was changed from blue (`rgba(59,130,246,0.12)`) to amber/gold (`rgba(251,191,36,0.18)`) for better contrast against the dark calendar background. The 4-second cycle and `ease-in-out` timing remain the same.
 
 ---
 

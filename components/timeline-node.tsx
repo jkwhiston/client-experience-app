@@ -7,7 +7,7 @@ import type {
   ExperienceStatus,
   DerivedStatus,
 } from '@/lib/types'
-import { EXPERIENCE_LABELS, EXPERIENCE_TYPES } from '@/lib/types'
+import { EXPERIENCE_TYPES, getExperienceLabel } from '@/lib/types'
 import {
   getEffectiveDueDate,
   getDueAtEffective,
@@ -59,11 +59,11 @@ export function TimelineNode({
   const [detailModalOpen, setDetailModalOpen] = useState(false)
 
   const expType = experience.experience_type
-  const label = EXPERIENCE_LABELS[expType]
+  const label = getExperienceLabel(experience)
 
   const dueAt = useMemo(
     () => getEffectiveDueDate(experience, client.signed_on_date),
-    [client.signed_on_date, experience.custom_due_at, experience.experience_type]
+    [client.signed_on_date, experience.custom_due_at, experience.experience_type, experience.month_number]
   )
   const dueAtEffective = useMemo(
     () => getDueAtEffective(dueAt, client.paused_total_seconds),
@@ -79,9 +79,14 @@ export function TimelineNode({
     now: nowEffective,
   })
 
-  // Determine if this node is "future" (after the active stage)
-  const activeStageIndex = useMemo(() => {
-    const active = EXPERIENCE_TYPES.findIndex((t) => {
+  // Determine if this node is "future" (after the active stage).
+  // For initial experiences: compare index in EXPERIENCE_TYPES.
+  // For monthly experiences: a node is future if derivedStatus is pending and it's not the active stage.
+  const isFuture = useMemo(() => {
+    if (expType === 'monthly') {
+      return !isActiveStage && derivedStatus === 'pending'
+    }
+    const activeStageIdx = EXPERIENCE_TYPES.findIndex((t) => {
       const exp = client.client_experiences.find((e) => e.experience_type === t)
       if (!exp) return false
       const d = getEffectiveDueDate(exp, client.signed_on_date)
@@ -94,11 +99,9 @@ export function TimelineNode({
       })
       return status === 'pending' || status === 'failed'
     })
-    return active >= 0 ? active : EXPERIENCE_TYPES.length
-  }, [client, nowEffective])
-
-  const thisIndex = EXPERIENCE_TYPES.indexOf(expType)
-  const isFuture = thisIndex > activeStageIndex
+    const thisIdx = EXPERIENCE_TYPES.indexOf(expType)
+    return thisIdx > (activeStageIdx >= 0 ? activeStageIdx : EXPERIENCE_TYPES.length)
+  }, [client, nowEffective, expType, isActiveStage, derivedStatus])
 
   // Distinguish overdue-pending from explicitly-failed
   const isOverdue = derivedStatus === 'failed' && experience.status === 'pending'
@@ -108,6 +111,7 @@ export function TimelineNode({
   const isLiveNode = isActiveStage && (derivedStatus === 'pending' || isOverdue)
   const isDone = derivedStatus === 'done' || derivedStatus === 'done_late'
   const isFailed = isExplicitlyFailed
+  const isInactiveOverdue = !isActiveStage && isOverdue
 
   // Timer lines (two-line format for active/late nodes)
   const timerLines = useMemo((): { line1: string; line2: string } | null => {
@@ -134,11 +138,11 @@ export function TimelineNode({
     return `Due: ${formatDueShort(dueAtEffective, includeTime)}`
   }, [dueAtEffective, isLiveNode])
 
-  // Future countdown (compact, for inside the small circle)
+  // Compact countdown for small circles (future nodes and inactive overdue nodes)
   const futureCountdown = useMemo((): { line1: string; line2: string } | null => {
-    if (isFuture) return formatDurationCompact(secondsRemaining)
+    if (isFuture || isInactiveOverdue) return formatDurationCompact(secondsRemaining)
     return null
-  }, [isFuture, secondsRemaining])
+  }, [isFuture, isInactiveOverdue, secondsRemaining])
 
   async function handleStatusChange(newStatus: ExperienceStatus) {
     const newCompletedAt = newStatus === 'yes' ? new Date().toISOString() : null
@@ -149,13 +153,24 @@ export function TimelineNode({
     ]
 
     // When marking as done, find earlier pending nodes to auto-fail
-    const thisIdx = EXPERIENCE_TYPES.indexOf(expType)
-    const earlierPending = newStatus === 'yes'
-      ? client.client_experiences.filter((e) => {
+    let earlierPending: ClientExperience[] = []
+    if (newStatus === 'yes') {
+      if (expType === 'monthly') {
+        earlierPending = client.client_experiences.filter((e) =>
+          e.experience_type === 'monthly' &&
+          e.month_number != null &&
+          experience.month_number != null &&
+          e.month_number < experience.month_number &&
+          e.status === 'pending'
+        )
+      } else {
+        const thisIdx = EXPERIENCE_TYPES.indexOf(expType)
+        earlierPending = client.client_experiences.filter((e) => {
           const eIdx = EXPERIENCE_TYPES.indexOf(e.experience_type)
-          return eIdx < thisIdx && e.status === 'pending'
+          return eIdx >= 0 && eIdx < thisIdx && e.status === 'pending'
         })
-      : []
+      }
+    }
 
     // Add earlier pending to snapshot before they are changed
     for (const ep of earlierPending) {
@@ -244,7 +259,8 @@ export function TimelineNode({
                 isLiveNode && isOverdue ? 'text-red-400' : '',
                 isLiveNode && !isOverdue ? 'text-blue-400' : '',
                 isFailed ? 'text-red-400' : '',
-                !isLiveNode && !isFailed && 'text-muted-foreground/50'
+                isInactiveOverdue ? 'text-red-400/70' : '',
+                !isLiveNode && !isFailed && !isInactiveOverdue && 'text-muted-foreground/50'
               )}>
                 {label}
               </span>
@@ -325,20 +341,27 @@ export function TimelineNode({
                     )}
                   </div>
                 ) : (
-                  /* ===== FUTURE: Small circle with countdown ===== */
+                  /* ===== FUTURE / INACTIVE OVERDUE: Small circle with countdown ===== */
                   <div className={cn(
                     'relative rounded-full flex items-center justify-center transition-all duration-200',
                     'h-12 w-12',
-                    'border-2 border-border bg-card',
-                    'group-hover:ring-1 group-hover:ring-muted-foreground/30 group-hover:shadow-[0_0_8px_rgba(150,150,150,0.15)]'
+                    isInactiveOverdue
+                      ? 'border-2 border-red-500/60 bg-card group-hover:ring-1 group-hover:ring-red-500/30 group-hover:shadow-[0_0_8px_rgba(239,68,68,0.15)]'
+                      : 'border-2 border-border bg-card group-hover:ring-1 group-hover:ring-muted-foreground/30 group-hover:shadow-[0_0_8px_rgba(150,150,150,0.15)]'
                   )}>
                     {futureCountdown && (
                       <div className="flex flex-col items-center leading-tight">
-                        <span className="text-[11px] font-mono text-muted-foreground font-medium">
+                        <span className={cn(
+                          'text-[11px] font-mono font-medium',
+                          isInactiveOverdue ? 'text-red-500/70' : 'text-muted-foreground'
+                        )}>
                           {futureCountdown.line1}
                         </span>
                         {futureCountdown.line2 && (
-                          <span className="text-[11px] font-mono text-muted-foreground font-medium">
+                          <span className={cn(
+                            'text-[11px] font-mono font-medium',
+                            isInactiveOverdue ? 'text-red-500/70' : 'text-muted-foreground'
+                          )}>
                             {futureCountdown.line2}
                           </span>
                         )}
@@ -366,8 +389,11 @@ export function TimelineNode({
                       Failed
                     </span>
                   )}
-                  {isFuture && (
-                    <span className="text-[10px] text-muted-foreground block">
+                  {(isFuture || isInactiveOverdue) && (
+                    <span className={cn(
+                      'text-[10px] block',
+                      isInactiveOverdue ? 'text-red-500/60' : 'text-muted-foreground'
+                    )}>
                       {dueString}
                     </span>
                   )}
@@ -417,6 +443,7 @@ export function TimelineNode({
         client={client}
         experience={experience}
         now={now}
+        isActiveStage={isActiveStage}
         onOpenNotes={() => setNotesOpen(true)}
         updateClientLocal={updateClientLocal}
       />
