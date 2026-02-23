@@ -109,6 +109,7 @@ export function TimelineNode({
 
   // Is this node the active one showing a live countdown?
   const isLiveNode = isActiveStage && (derivedStatus === 'pending' || isOverdue)
+  const isWithin24Hours = !isOverdue && derivedStatus === 'pending' && secondsRemaining <= 86400
   const isDone = derivedStatus === 'done' || derivedStatus === 'done_late'
   const isFailed = isExplicitlyFailed
   const isInactiveOverdue = !isActiveStage && isOverdue
@@ -229,6 +230,7 @@ export function TimelineNode({
   }
 
   const hasNotes = experience.notes?.trim().length > 0
+  const uncheckedTodoCount = (experience.todos ?? []).filter(t => !t.done).length
   const dimmed = isFocusMode && !isFocused
 
   const handleNodeClick = () => {
@@ -278,7 +280,11 @@ export function TimelineNode({
                       ? 'border-2 border-red-500 bg-card group-hover:ring-[5px] group-hover:ring-red-500/50 group-hover:shadow-[0_0_20px_rgba(239,68,68,0.35)]'
                       : 'border-2 border-blue-500 bg-card group-hover:ring-[5px] group-hover:ring-blue-500/50 group-hover:shadow-[0_0_20px_rgba(59,130,246,0.35)]'
                   )}>
-                    <span className={cn('absolute -inset-1 rounded-full pointer-events-none', isOverdue ? 'pulse-ring-red' : 'pulse-ring-blue')} aria-hidden />
+                    <span
+                      className={cn('absolute -inset-1 rounded-full pointer-events-none', isOverdue ? 'pulse-ring-red' : 'pulse-ring-blue')}
+                      style={!isOverdue && isWithin24Hours ? { boxShadow: '0 0 0 3px rgba(234,179,8,0.45), 0 0 14px rgba(234,179,8,0.2)' } : undefined}
+                      aria-hidden
+                    />
                     {/* Timer (two lines) */}
                     {timerLines && (
                       <div className="flex flex-col items-center leading-tight">
@@ -302,7 +308,12 @@ export function TimelineNode({
                     </span>
 
                     {hasNotes && (
-                      <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary" aria-hidden />
+                      <span className="absolute -top-1 -right-1 z-10 h-3 w-3 rounded-full bg-primary" aria-hidden />
+                    )}
+                    {uncheckedTodoCount > 0 && (
+                      <span className="absolute -bottom-1 -right-1 z-10 h-5 w-5 rounded-full bg-amber-500 text-black text-[10px] font-bold flex items-center justify-center ring-2 ring-card" aria-hidden>
+                        {uncheckedTodoCount}
+                      </span>
                     )}
                   </div>
                 ) : isDone ? (
@@ -324,6 +335,11 @@ export function TimelineNode({
                     {hasNotes && (
                       <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" aria-hidden />
                     )}
+                    {uncheckedTodoCount > 0 && (
+                      <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-amber-500 text-black text-[9px] font-bold flex items-center justify-center ring-2 ring-card" aria-hidden>
+                        {uncheckedTodoCount}
+                      </span>
+                    )}
                   </div>
                 ) : isFailed ? (
                   /* ===== FAILED: Small circle with red X ===== */
@@ -339,6 +355,11 @@ export function TimelineNode({
 
                     {hasNotes && (
                       <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" aria-hidden />
+                    )}
+                    {uncheckedTodoCount > 0 && (
+                      <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-amber-500 text-black text-[9px] font-bold flex items-center justify-center ring-2 ring-card" aria-hidden>
+                        {uncheckedTodoCount}
+                      </span>
                     )}
                   </div>
                 ) : (
@@ -371,6 +392,11 @@ export function TimelineNode({
 
                     {hasNotes && (
                       <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" aria-hidden />
+                    )}
+                    {uncheckedTodoCount > 0 && (
+                      <span className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-amber-500 text-black text-[9px] font-bold flex items-center justify-center ring-2 ring-card" aria-hidden>
+                        {uncheckedTodoCount}
+                      </span>
                     )}
                   </div>
                 )}

@@ -1,6 +1,6 @@
 # Developer Documentation — Client Experience Tracking App
 
-> Last updated: February 19, 2026 (night)
+> Last updated: February 23, 2026
 
 ## Overview
 
@@ -264,13 +264,13 @@ The timeline is a horizontal stepper with three nodes connected by a track:
   - **Bottom zone** (`min-h-[28px]`): Hover action icons only.
 
 - **Node Types**:
-  - **Active/Late** (110px circle): Live two-line countdown with seconds, due date inside. Blue border + pulse animation (pending) or red border + pulse animation (late). CSS `animate-pulse-blue` / `animate-pulse-red` provides a subtle breathing glow effect; animation is removed on hover (`animation: none`) so the static `group-hover` ring/shadow takes over.
+  - **Active/Late** (110px circle): Live two-line countdown with seconds, due date inside. Blue border + pulse animation (pending) or red border + pulse animation (late). When a pending node is within 24 hours of its deadline, the outer pulse ring switches to yellow while the inner circle border stays blue (see "24-Hour Warning Border" below). A separate `<span>` overlay with CSS class `pulse-ring-blue` / `pulse-ring-red` provides a subtle breathing glow effect by animating `opacity` on a static `box-shadow` (see "GPU-Safe Pulse Animation" below). For the yellow 24-hour variant, the `pulse-ring-blue` class is kept for animation/hover behavior and the box-shadow color is overridden via inline `style` (see "24-Hour Warning Border" for rationale). Animation is removed on hover (`animation: none; opacity: 0`) so the static `group-hover` ring/shadow takes over.
   - **Done** (44px circle): Green checkmark (on-time) or amber checkmark (done late), "Completed [date]" below.
   - **Future** (48px circle, `h-12 w-12`): Stacked two-line countdown inside (`formatDurationCompact` returns `{ line1, line2 }`), `border-2 border-border`, "Due: [date]" below.
   - **Inactive Overdue** (48px circle): Overdue nodes that are not the active stage — e.g., unarchived clients returning to the pipeline. Red border (`border-red-500/60`), compact late duration inside in muted red, due date below in `text-red-500/60`. Label styled `text-red-400/70`.
   - All circle backgrounds use opaque `bg-card` so the track line does not show through. Borders are fully opaque.
 
-- **Pulse Animation** (in `app/globals.css`): Two `@keyframes` (`pulse-blue`, `pulse-red`) animate `box-shadow` with ring spread (3px–5px) and outer glow. Applied via `.animate-pulse-blue` / `.animate-pulse-red` classes on active node circles. A `.group:hover` CSS rule sets `animation: none` to cleanly hand off to the static Tailwind hover glow.
+- **Pulse Animation** (in `app/globals.css`): Uses a single `@keyframes pulse-ring` that animates `opacity` (0.3 → 0.85) over 3 seconds. Applied via `.pulse-ring-blue` / `.pulse-ring-red` / `.pulse-ring-yellow` classes on a `<span>` overlay element inside the circle (positioned `absolute -inset-1`). Each class has a *static* `box-shadow` (ring spread + outer glow) that fades in and out via the opacity animation. A `.group:hover` CSS rule sets `animation: none; opacity: 0` to cleanly hand off to the static Tailwind hover glow. **Note**: The 24-hour warning yellow variant uses `pulse-ring-blue` for animation/hover and overrides the box-shadow color via inline `style` rather than relying solely on the `pulse-ring-yellow` class (see "24-Hour Warning Border" section for details). **Important**: The `box-shadow` values are never animated — only `opacity` changes. This is critical for GPU performance; see "GPU-Safe Pulse Animation" below.
 
 ### Modal System
 
@@ -406,7 +406,7 @@ Optional:
 
 7. **Below-circle text positioning** (`timeline-node.tsx`) — Completed dates and due dates are now `absolute top-full` so they stay close to their circle without affecting flex centering.
 
-8. **Breathing pulse animation** (`app/globals.css` + `timeline-node.tsx`) — Active node circles have a CSS keyframe animation (`pulse-blue` for pending, `pulse-red` for late) that gently oscillates the ring glow (3px–5px spread, varying opacity) over 3 seconds. On hover, the animation is removed via `.group:hover { animation: none }` so the static Tailwind ring/shadow hover effect takes over cleanly.
+8. **Breathing pulse animation** (`app/globals.css` + `timeline-node.tsx`) — Active node circles have a breathing glow effect using a `<span>` overlay with a static `box-shadow` and an `opacity`-only CSS keyframe animation (`pulse-ring`) over 3 seconds. On hover, the animation is removed and opacity set to 0 so the static Tailwind ring/shadow hover effect takes over cleanly. See "GPU-Safe Pulse Animation" section for details on why `box-shadow` values must never be animated.
 
 9. **Removed tooltip** (`timeline-node.tsx`) — The "Click to expand details & notes" tooltip wrapper was removed from timeline nodes. Tooltip/TooltipContent/TooltipTrigger imports cleaned up.
 
@@ -629,16 +629,7 @@ Added the ability to "flag" a client row with a color, making it visually stand 
    - A "Clear Flag" option (with `X` icon) that appears when a flag is active.
    - `handleFlagChange(color)` updates the local state optimistically via `updateClientLocal` and persists to Supabase via `updateClient`.
 
-6. **Row gradient styling** (`components/client-row.tsx`) — When a flag is active, the row gets a wave-like gradient background applied via inline `backgroundImage` style:
-   ```
-   linear-gradient(to right,
-     rgba(R,G,B,0.18) 0%,
-     rgba(R,G,B,0.10) 25%,
-     rgba(R,G,B,0.16) 50%,
-     rgba(R,G,B,0.08) 75%,
-     rgba(R,G,B,0.14) 100%)
-   ```
-   The non-uniform opacity stops create a subtle undulating/wave effect across the full row width. The left `w-1` accent strip is also tinted with the flag color at 50% opacity.
+6. **Row flag styling** (`components/client-row.tsx`) — When a flag is active, the row gets a solid semi-transparent background applied via inline `backgroundColor: rgba(R,G,B,0.13)`. The left `w-1` accent strip is also tinted with the flag color at 50% opacity. **Note**: This was originally a 5-stop `linear-gradient` on `backgroundImage`, but was simplified to a solid `backgroundColor` to avoid GPU texture exhaustion — see "GPU-Safe Pulse Animation" section.
 
 ### Monthly Node Fixed-Group Windowing (Feb 19, 2026)
 
@@ -650,9 +641,47 @@ Added the ability to "flag" a client row with a color, making it visually stand 
 
 2. **Header dropdown consolidation** (`components/dashboard-header.tsx`) — The Archived tab button, standalone `ThemeToggle`, and sign-out icon button were removed from the top-level header. They are now consolidated into a single `DropdownMenu` triggered by a `MoreHorizontal` (three dots) icon button. The dropdown contains: "Archived" menu item (with `Archive` icon, highlighted with `bg-accent` when active), a theme toggle item (shows "Dark mode" / "Light mode" with Sun/Moon icon using `useTheme` from `next-themes` directly), a separator, and "Sign out" (with `LogOut` icon). The `ThemeToggle` component import was removed; `useTheme` is now called directly in `DashboardHeader`. Only the Onboarding and Lifecycle buttons remain in the visible tab pill group.
 
+### GPU-Safe Pulse Animation Fix (Feb 19, 2026)
+
+Fixed a critical Chrome GPU crash that turned the entire browser solid red (`rgb(239,68,68)`) when multiple client rows were flagged red on the Lifecycle tab. The crash only occurred on the Vercel production deployment, not locally.
+
+**Root cause**: The combination of three factors overwhelmed Chrome's GPU compositor:
+1. **Animated `box-shadow` values** — The old `animate-pulse-red` / `animate-pulse-blue` CSS keyframes animated `box-shadow` spread and blur values at 60fps. Each animated `box-shadow` triggers a full GPU repaint every frame. With 8+ overdue nodes running this animation simultaneously, that's ~480 full GPU repaints per second.
+2. **Complex flag gradients** — Red-flagged rows used a 5-stop `linear-gradient` as `backgroundImage`, requiring GPU texture interpolation for each row.
+3. **1-second React re-render cycle** — The `setNow()` timer updates state every second, causing React to re-render all rows and invalidate GPU-cached textures. The GPU never got time to reclaim memory.
+
+In production (Vercel), all elements render simultaneously on page load, creating a GPU texture spike that dev mode's incremental HMR loading avoids.
+
+**What changed**:
+
+1. **`app/globals.css`** — Replaced `@keyframes pulse-blue` / `pulse-red` (which animated `box-shadow` values) with `@keyframes pulse-ring` (which animates only `opacity`). New `.pulse-ring-blue` / `.pulse-ring-red` classes have a *static* `box-shadow` and use the `opacity` animation. Old `.animate-pulse-blue` / `.animate-pulse-red` classes were removed entirely.
+
+2. **`components/timeline-node.tsx`** — The pulse effect is now applied via a separate `<span className="pulse-ring-red">` overlay element (positioned `absolute -inset-1 rounded-full`) inside the circle, instead of directly on the circle div. Removed `overflow-hidden` from the active circle (not needed for small text in a 110px circle, and it would clip the ring overlay's box-shadow).
+
+3. **`components/client-row.tsx`** — Replaced the 5-stop `linear-gradient` on `backgroundImage` with a simple `backgroundColor: rgba(R,G,B,0.13)`. A solid color is trivially GPU-cached vs. a gradient requiring interpolation.
+
+**Why `opacity` is safe but `box-shadow` is not**: In Chrome's rendering pipeline, `opacity` changes are handled entirely by the compositor thread — no repaint, no layout, no GPU texture reallocation. Animated `box-shadow` values require the browser to repaint the element's layer every frame (recalculating blur, spread, and color blending from scratch), which is extremely GPU-intensive when multiplied across many elements.
+
+**Rules for future changes**:
+- **NEVER animate `box-shadow` values** in CSS keyframes. Animate `opacity` or `transform` instead (both are compositor-only properties).
+- **Avoid complex `linear-gradient` on frequently-rerendered elements**. The 1-second timer means every visible element is repainted every second; prefer solid `backgroundColor` with alpha transparency.
+- **Test on Vercel (production) before considering animation changes safe**. Dev mode (Turbopack + HMR) loads elements incrementally, hiding GPU issues that only appear when everything renders simultaneously.
+
 ### Calendar Today Pulse Color Change (Feb 19, 2026)
 
 1. **Amber/gold pulse** (`app/globals.css`) — The `today-cell-pulse` keyframe animation was changed from blue (`rgba(59,130,246,0.12)`) to amber/gold (`rgba(251,191,36,0.18)`) for better contrast against the dark calendar background. The 4-second cycle and `ease-in-out` timing remain the same.
+
+### 24-Hour Warning Border for Pending Nodes (Feb 23, 2026)
+
+Active pending nodes that are within 24 hours of their deadline now show a **yellow** outer pulse ring instead of blue, providing an at-a-glance urgency indicator. The inner node circle border remains blue (`border-blue-500`).
+
+1. **New `isWithin24Hours` boolean** (`components/timeline-node.tsx`) — Computed as `!isOverdue && derivedStatus === 'pending' && secondsRemaining <= 86400` (24 × 60 × 60). This is `true` only for non-overdue pending nodes with 24 hours or less remaining.
+
+2. **Yellow pulse ring via inline style override** (`components/timeline-node.tsx`) — The pulse ring `<span>` always uses the `pulse-ring-blue` CSS class (for its animation keyframe reference and `.group:hover` hide behavior). When `isWithin24Hours` is true, an inline `style={{ boxShadow: '0 0 0 3px rgba(234,179,8,0.45), 0 0 14px rgba(234,179,8,0.2)' }}` overrides the blue box-shadow with yellow. Inline styles take CSS precedence over class styles, so the yellow shadow renders while the animation and hover behavior from `pulse-ring-blue` remain intact.
+
+3. **`pulse-ring-yellow` CSS class** (`app/globals.css`) — A `.pulse-ring-yellow` class is also defined alongside `.pulse-ring-blue` and `.pulse-ring-red`, and included in the `.group:hover` hide rule. However, the inline style approach in the component is the primary mechanism because Turbopack's CSS processing does not reliably pick up newly-added custom CSS classes without a dev server restart.
+
+4. **No changes to overdue or non-pending nodes** — Overdue nodes (red) and non-active/future nodes are unaffected. The yellow ring only applies to the active pending node when `secondsRemaining <= 86400`.
 
 ---
 
