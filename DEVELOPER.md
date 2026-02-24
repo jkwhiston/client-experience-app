@@ -340,6 +340,35 @@ Simple password-based auth (no user accounts):
 
 ---
 
+## Zapier Webhook Integration
+
+- Source Zap flow: `https://zapier.com/editor/350956403/published/350956405/sample`
+- Endpoint: `POST /api/webhooks/zapier/client-signed` (`app/api/webhooks/zapier/client-signed/route.ts`)
+- Access: webhook routes are allowlisted in middleware (`/api/webhooks/*`) so Zapier can call them without app login cookies
+
+Expected payload from Zapier:
+
+```json
+{
+  "source": "zapier",
+  "event": "client_signed",
+  "payload_version": 1,
+  "client_name": "Jane Doe",
+  "taxdome_slug": "my-taxdome-slug",
+  "occurred_at_utc": "2026-02-24T22:40:00Z"
+}
+```
+
+Normalization and behavior:
+- `occurred_at_utc` is converted to Los Angeles time (`America/Los_Angeles`)
+- `signed_on_date` in `clients` is derived from the LA-local date
+- client + initial experiences are created; monthly rows are attempted if monthly migration exists
+- duplicate retries are deduped by `name + signed_on_date`
+
+If the Zapier flow field mapping changes, update this section and `validatePayload()` in the webhook route together.
+
+---
+
 ## Environment Variables
 
 Required in `.env.local`:
