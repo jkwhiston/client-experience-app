@@ -350,6 +350,7 @@ Required in `.env.local`:
 Optional:
 - `DATABASE_URL` — PostgreSQL connection string for the `/api/migrate` endpoint (can also be provided at runtime via the request body)
 - `NEXT_PUBLIC_FIRM_TIMEZONE` — timezone for deadline calculations (defaults to `America/New_York`)
+- `ZAPIER_WEBHOOK_SECRET` — if set, `/api/webhooks/zapier/client-signed` requires this exact value in the `x-webhook-secret` request header
 
 ---
 

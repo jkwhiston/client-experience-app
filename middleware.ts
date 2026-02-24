@@ -8,9 +8,10 @@ export function middleware(request: NextRequest) {
   const isAuthenticated = authCookie?.value === AUTH_TOKEN
   const isLoginPage = request.nextUrl.pathname.startsWith('/login')
   const isAuthApi = request.nextUrl.pathname.startsWith('/api/auth')
+  const isWebhookApi = request.nextUrl.pathname.startsWith('/api/webhooks/')
 
-  // Allow auth API and login page through
-  if (isAuthApi) {
+  // Allow auth and incoming webhook APIs through.
+  if (isAuthApi || isWebhookApi) {
     return NextResponse.next()
   }
 
