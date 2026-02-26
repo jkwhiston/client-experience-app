@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Copy, Check, Upload } from 'lucide-react'
 
 const SCHEMA_EXAMPLE = `[
-  { "name": "Jane Doe", "signed_on_date": "2026-02-10" },
+  { "name": "Jane Doe", "signed_on_date": "2026-02-10", "initial_intake_date": "2026-02-11" },
   { "name": "John Smith", "signed_on_date": "2026-01-15" }
 ]`
 
@@ -31,6 +31,7 @@ interface ImportClientsDialogProps {
 interface ImportEntry {
   name: string
   signed_on_date: string
+  initial_intake_date?: string
 }
 
 function validate(raw: string): { entries: ImportEntry[]; error: string | null } {
@@ -68,7 +69,20 @@ function validate(raw: string): { entries: ImportEntry[]; error: string | null }
       }
     }
 
-    entries.push({ name: obj.name.trim(), signed_on_date: obj.signed_on_date })
+    if (obj.initial_intake_date != null) {
+      if (typeof obj.initial_intake_date !== 'string' || !DATE_RE.test(obj.initial_intake_date)) {
+        return {
+          entries: [],
+          error: `Item ${i + 1}: "initial_intake_date" must be a date string in YYYY-MM-DD format when provided.`,
+        }
+      }
+    }
+
+    entries.push({
+      name: obj.name.trim(),
+      signed_on_date: obj.signed_on_date,
+      initial_intake_date: typeof obj.initial_intake_date === 'string' ? obj.initial_intake_date : undefined,
+    })
   }
 
   return { entries, error: null }
@@ -120,7 +134,11 @@ export function ImportClientsDialog({
     let failed = 0
 
     for (const entry of entries) {
-      const client = await createClientWithExperiences(entry.name, entry.signed_on_date)
+      const client = await createClientWithExperiences(
+        entry.name,
+        entry.signed_on_date,
+        entry.initial_intake_date ?? null
+      )
       if (client) {
         onAddClient(client)
         imported++

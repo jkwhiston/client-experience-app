@@ -1,10 +1,10 @@
 # Developer Documentation — Client Experience Tracking App
 
-> Last updated: February 23, 2026
+> Last updated: February 26, 2026
 
 ## Overview
 
-A Next.js web app for tracking time-based client milestones. The **Onboarding** tab tracks three initial onboarding milestones: **24-Hour**, **14-Day**, and **30-Day** experiences. The **Lifecycle** tab tracks recurring **monthly** post-30-day experiences (months 2–18, i.e. 1.5 years from sign-on). Each client has deadlines calculated from their signed-on date. The UI shows a horizontal timeline stepper per client with live countdowns, status indicators, and interactive modals for managing status and notes.
+A Next.js web app for tracking time-based client milestones. The **Onboarding** tab tracks three initial onboarding milestones: **24-Hour**, **10-Day**, and **30-Day** experiences. The **Lifecycle** tab tracks recurring **monthly** post-30-day experiences (months 2–18, i.e. 1.5 years from sign-on). Clients now have both a **signed-on date** and an optional **initial intake date**. By default, 24-Hour and 10-Day anchor to initial intake when present (otherwise sign-on), while other nodes stay sign-on anchored. The UI shows a horizontal timeline stepper per client with live countdowns, status indicators, and interactive modals for managing status and notes.
 
 ### Page vs. Node Naming Convention
 
@@ -80,7 +80,8 @@ The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previou
 ├── supabase/
 │   └── migrations/
 │       ├── 20260219_add_monthly_experiences.sql  # Two-step migration for monthly experiences
-│       └── 20260219_add_flag_color.sql           # Add flag_color column to clients
+│       ├── 20260219_add_flag_color.sql           # Add flag_color column to clients
+│       └── 20260226_add_initial_intake_and_day10.sql # Add intake columns + day14 -> day10 migration
 ├── middleware.ts                  # Next.js middleware (Supabase session)
 ├── BUILD_SPEC.md                  # Original build specification
 ├── REDISGN_SPEC.md                # Timeline redesign specification
@@ -99,6 +100,8 @@ The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previou
 | id                   | uuid (PK)   | Default gen_random_uuid()      |
 | name                 | text         |                                |
 | signed_on_date       | date         | YYYY-MM-DD                     |
+| initial_intake_date  | date         | Nullable; optional intake anchor date |
+| initial_intake_pulse_enabled | boolean | Default true; controls blank-intake pulse reminder |
 | is_archived          | boolean      | Default false                  |
 | archived_at          | timestamptz  | Nullable                       |
 | paused               | boolean      | Default false                  |
@@ -113,7 +116,7 @@ The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previou
 |------------------|-----------------------------------------------|--------------------------------|
 | id               | uuid (PK)                                     |                                |
 | client_id        | uuid (FK -> clients)                          |                                |
-| experience_type  | 'hour24' \| 'day14' \| 'day30' \| 'monthly'  |                                |
+| experience_type  | 'hour24' \| 'day10' \| 'day30' \| 'monthly'  |                                |
 | month_number     | integer                                       | Nullable; 2–18 for monthly experiences, null for initial types |
 | status           | 'pending' \| 'yes' \| 'no'                   | DB-level status                |
 | completed_at     | timestamptz                                   | Nullable; set on completion    |
@@ -123,14 +126,14 @@ The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previou
 | created_at       | timestamptz                                   |                                |
 | updated_at       | timestamptz                                   |                                |
 
-Each client has **20 experience rows** total: 3 initial (hour24, day14, day30) + 17 monthly (months 2–18). Monthly rows use `experience_type = 'monthly'` with `month_number` set to the month ordinal.
+Each client has **20 experience rows** total: 3 initial (hour24, day10, day30) + 17 monthly (months 2–18). Monthly rows use `experience_type = 'monthly'` with `month_number` set to the month ordinal.
 
 **Unique constraint**: The `client_experiences` table has a unique index on `(client_id, experience_type, COALESCE(month_number, 0))`. This allows one row per initial experience type (where `month_number` is NULL → coalesced to 0) and one row per monthly month_number per client.
 
 ### TypeScript Types (`lib/types.ts`)
 
 ```typescript
-type ExperienceType = 'hour24' | 'day14' | 'day30' | 'monthly'
+type ExperienceType = 'hour24' | 'day10' | 'day30' | 'monthly'
 type ExperienceStatus = 'pending' | 'yes' | 'no'        // DB values
 type DerivedStatus = 'pending' | 'done' | 'done_late' | 'failed'  // Display values
 type ActiveTab = 'onboarding' | 'lifecycle' | 'archived'
@@ -139,6 +142,8 @@ interface TodoItem { id: string; text: string; done: boolean }
 
 interface Client {
   // ...standard fields (id, name, signed_on_date, is_archived, paused, etc.)...
+  initial_intake_date: string | null
+  initial_intake_pulse_enabled: boolean
   flag_color: string | null     // color key from FLAG_COLORS, e.g. 'red', 'blue'
 }
 
@@ -153,8 +158,8 @@ interface ClientWithExperiences extends Client {
 }
 
 // Constants
-const EXPERIENCE_TYPES: ExperienceType[] = ['hour24', 'day14', 'day30']          // Initial types only
-const INITIAL_EXPERIENCE_TYPES: ExperienceType[] = ['hour24', 'day14', 'day30']  // Alias for clarity
+const EXPERIENCE_TYPES: ExperienceType[] = ['hour24', 'day10', 'day30']          // Initial types only
+const INITIAL_EXPERIENCE_TYPES: ExperienceType[] = ['hour24', 'day10', 'day30']  // Alias for clarity
 const MONTHLY_MONTH_RANGE = { min: 2, max: 18 }                                  // 17 months (1.5 years)
 const FLAG_COLORS: { key: string; label: string; rgb: string }[]                 // 7-color palette for row flags
 
@@ -185,10 +190,10 @@ All deadline logic is centralized here. Key concepts:
 
 - **Firm Timezone**: All calculations use a configured timezone constant (defaults to `America/New_York`, configurable via `NEXT_PUBLIC_FIRM_TIMEZONE`).
 - **`getDueAt(signedOnDate, expType, firmTz, monthNumber?)`**: Returns the raw deadline Date for a given experience type. For `'monthly'` type, uses `addMonths(baseDate, monthNumber)` from date-fns for proper month-length handling (e.g. Jan 31 + 1 month = Feb 28). All deadlines are 11:59 PM in the firm timezone.
-- **`getEffectiveDueDate(experience, signedOnDate)`**: Uses `custom_due_at` if set, otherwise calls `getDueAt`. Reads `month_number` from the experience object for monthly types.
+- **`getEffectiveDueDate(experience, signedOnDate, firmTz?, initialIntakeDate?)`**: Uses `custom_due_at` if set, otherwise resolves an anchor date and calls `getDueAt`. Anchor rules: `hour24`/`day10` use `initial_intake_date` when present, else `signed_on_date`; all other types use `signed_on_date`. Reads `month_number` from the experience object for monthly types.
 - **`getDueAtEffective(dueAt, pausedTotalSeconds)`**: Adjusts the deadline forward by the total paused seconds.
 - **`getNowEffective(client, now)`**: If the client is paused, freezes "now" at the pause start time.
-- **`getActiveStage(client, now)`**: Returns the first *initial* experience type that is `pending` or `failed` (the current active milestone). Only checks hour24/day14/day30.
+- **`getActiveStage(client, now)`**: Returns the first *initial* experience type that is `pending` or `failed` (the current active milestone). Only checks hour24/day10/day30.
 - **`getActiveStageMonthly(client, now)`**: Returns the `month_number` of the first *monthly* experience that is `pending` or `failed`, or null if all are done. **Gated**: returns `null` immediately if the client's `day30` experience still has DB status `'pending'`, so lifecycle nodes stay inactive until onboarding is resolved.
 - **`getNextActiveDeadline(client)`**: Returns the nearest effective deadline `Date` across initial experience types where `exp.status === 'pending'`. Used by the "Next Active Deadline" sort option.
 - **`getNextMonthlyDeadline(client)`**: Same as above but for monthly experiences. Used by the "Next Monthly Deadline" sort option.
@@ -224,7 +229,7 @@ app/page.tsx
 │           ├── [Flag gradient background — optional, set via right-click context menu]
 │           ├── [Timeline track: dotted bg line + colored progress overlay]
         │           └── TimelineNode × 3
-        │           │     Onboarding tab: one per initial type (hour24, day14, day30)
+        │           │     Onboarding tab: one per initial type (hour24, day10, day30)
         │           │     Lifecycle tab: 3 monthly experiences from getVisibleMonthlyExperiences()
         │           │     ├── [Circle with status indicator]
         │           │     ├── [Hover actions: Notes icon, Mark done]
@@ -240,7 +245,7 @@ app/page.tsx
               └── CalendarDayCell × 28-42 (7-column grid, dynamic row count)
                     ├── [Day number with today highlight pulse]
                     └── [Deadline chips: clickable, status-colored]
-                    │     Initial chips: "24h", "14d", "30d"
+                    │     Initial chips: "24h", "10d", "30d"
                     │     Monthly chips: "2mo", "5mo", etc. (dynamic based on month_number)
                           ├── ExperienceDetailModal (reused, opened on chip click)
                           └── NotesModal (reused, opened from detail modal)
@@ -325,7 +330,7 @@ Status changes for completed items are done through the Detail Modal's dropdown.
 - **Optimistic updates**: `updateClientLocal` callback passed down the tree. Updates local state immediately, then fires async Supabase mutation (`updateExperience`, `updateClient`).
 - **Live countdowns**: The dashboard passes a `now` Date prop that ticks every second, causing timer re-renders.
 - **Focus mode** (removed): `FocusTabs` were removed from the UI. `focusTab` is now a constant `'overview'` in `ClientDashboard`. The `isFocusMode` / `isFocused` props still exist on child components but `isFocusMode` is always `false`.
-- **Filters/Sort**: Managed in `ClientDashboard`, applied before rendering `ClientList`. Status filter is a `Select` dropdown in `ControlsBar` (All, Pending, Done, Late, Failed). On the **Onboarding** tab, deadline sort options (`deadline_hour24`, `deadline_day14`, `deadline_day30`, `next_active_deadline`) both filter and sort — they remove clients with no active (DB `pending`) deadline for that experience type, then sort by deadline nearest-first. On the **Lifecycle** tab, available sorts are Name A→Z, Name Z→A, and "Next Monthly Deadline" (`next_monthly_deadline`). `sortOption` resets to `name_asc` when switching tabs if the current sort is invalid for the new tab. `sortOption` is passed to `ClientList` so it can display context-aware empty states.
+- **Filters/Sort**: Managed in `ClientDashboard`, applied before rendering `ClientList`. Status filter is a `Select` dropdown in `ControlsBar` (All, Pending, Done, Late, Failed). On the **Onboarding** tab, deadline sort options (`deadline_hour24`, `deadline_day10`, `deadline_day30`, `next_active_deadline`) both filter and sort — they remove clients with no active (DB `pending`) deadline for that experience type, then sort by deadline nearest-first. On the **Lifecycle** tab, available sorts are Name A→Z, Name Z→A, and "Next Monthly Deadline" (`next_monthly_deadline`). `sortOption` resets to `name_asc` when switching tabs if the current sort is invalid for the new tab. `sortOption` is passed to `ClientList` so it can display context-aware empty states.
 - **Lifecycle tab state**: When `activeTab === 'lifecycle'`, the dashboard shows non-archived clients (same as Onboarding), but each `ClientRow` renders in "lifecycle mode" — using `getVisibleMonthlyExperiences()` for the 3-node sliding window instead of the initial 3 types. Lifecycle summary counts (`OngoingSummaryRow`) are computed via `computeOngoingSummaryCounts` (a `useMemo`) which iterates monthly experiences to derive Up to Date / Due Soon / Overdue / Completion Rate.
 - **Client backfill**: On initial load, `backfillMonthlyExperiences()` is called after `fetchClients()` to create missing monthly experience rows for clients created before the Lifecycle feature was added. This is gated behind `checkMonthlyMigration()`, which probes for the `month_number` column; if the migration hasn't been applied, the backfill is skipped and a `MigrationBanner` is shown on the Lifecycle tab instead.
 
@@ -444,7 +449,7 @@ Optional:
 
 1. **Timeline track gradient alignment** (`client-row.tsx`) — `getTrackGradient()` color stops changed from equal thirds (33%/66%) to true midpoints (25%/75%) matching `justify-between` node positions. Additionally, hard color stops replaced with soft 4%-wide transition zones (23%–27%, 73%–77%) so adjacent segment colors blend smoothly instead of flipping abruptly.
 
-2. **JSON import feature** (`components/import-clients-dialog.tsx`, `controls-bar.tsx`) — New "Import JSON" button in the controls bar opens a dialog with a monospaced textarea for pasting a JSON array of `{ name, signed_on_date }` objects. Includes validation (JSON syntax, array structure, per-item field checks), a "Copy Schema" button that copies the expected format to clipboard, and sequential import via `createClientWithExperiences` with success/failure count summary.
+2. **JSON import feature** (`components/import-clients-dialog.tsx`, `controls-bar.tsx`) — New "Import JSON" button in the controls bar opens a dialog with a monospaced textarea for pasting a JSON array of `{ name, signed_on_date, initial_intake_date? }` objects. Includes validation (JSON syntax, array structure, per-item field checks), a "Copy Schema" button that copies the expected format to clipboard, and sequential import via `createClientWithExperiences` with success/failure count summary.
 
 3. **Fixed name column width** (`client-row.tsx`) — Left column changed from variable `min-w-[180px] max-w-[220px]` to fixed `w-[240px] shrink-0`, ensuring all rows have identical border alignment. Name text uses `text-wrap break-words` instead of `truncate` so full names are always visible.
 
@@ -456,7 +461,7 @@ Optional:
 
 7. **Collapsible experience summaries** (`client-dashboard.tsx`) — Summary cards wrapped in a collapsible section with a clickable "Experience Summaries" header and chevron icon toggle. Defaults to open.
 
-8. **Summary card visual differentiation** (`summary-row.tsx`) — Each experience type card now has a unique left-border accent and subtle background tint: 24-Hour (blue), 14-Day (violet), 30-Day (teal). Font sizes increased: title `text-sm` → `text-base`, counts `text-xs` → `text-sm`, hint `text-[10px]` → `text-xs`.
+8. **Summary card visual differentiation** (`summary-row.tsx`) — Each experience type card now has a unique left-border accent and subtle background tint: 24-Hour (blue), 10-Day (violet), 30-Day (teal). Font sizes increased: title `text-sm` → `text-base`, counts `text-xs` → `text-sm`, hint `text-[10px]` → `text-xs`.
 
 9. **Unique Google Font per client name** (`lib/client-fonts.ts`, `client-row.tsx`) — New utility assigns each client a deterministic font from a curated pool of 20 Google Fonts (Playfair Display, Raleway, Merriweather, Oswald, etc.) by hashing `client.id`. Fonts are loaded on-demand via `<link>` tags (bold weight only). Applied via inline `fontFamily` style to the name display button and editing input. Only client names are affected; all other text uses the default app font.
 
@@ -483,7 +488,7 @@ Optional:
 
 ### Active Deadline Filtering & Sort (Feb 13, 2026)
 
-1. **Deadline sort options now filter to active-only experiences** (`components/client-dashboard.tsx`) — The sort options `deadline_hour24`, `deadline_day14`, and `deadline_day30` now filter clients to only those whose experience for that type has DB `status === 'pending'`. This removes completed (`yes`) and explicitly failed (`no`) experiences from the list, but keeps overdue deadlines that are still active (DB `pending` but past due, which derive as `failed`). The remaining clients are sorted by deadline nearest-first.
+1. **Deadline sort options now filter to active-only experiences** (`components/client-dashboard.tsx`) — The sort options `deadline_hour24`, `deadline_day10`, and `deadline_day30` now filter clients to only those whose experience for that type has DB `status === 'pending'`. This removes completed (`yes`) and explicitly failed (`no`) experiences from the list, but keeps overdue deadlines that are still active (DB `pending` but past due, which derive as `failed`). The remaining clients are sorted by deadline nearest-first.
 
 2. **New "Next Active Deadline" sort option** (`lib/types.ts`, `lib/deadlines.ts`, `components/controls-bar.tsx`, `components/client-dashboard.tsx`) — Added `next_active_deadline` to the `SortOption` type. New `getNextActiveDeadline(client)` helper in `deadlines.ts` finds the nearest active deadline across all three experience types. When selected, filters to clients with at least one active deadline and sorts by the nearest one, regardless of experience type.
 
@@ -500,7 +505,7 @@ Optional:
 
 2. **Calendar day cell** (`components/calendar-day-cell.tsx`) — Each cell renders:
    - Day number with a `bg-primary` circle highlight for today.
-   - Scrollable list of status-colored deadline chips. Each chip is a flex row with a `shrink-0` experience type badge ("24h", "14d", "30d") at the leading edge, followed by a truncating client name. This ensures the type is always visible regardless of name length.
+   - Scrollable list of status-colored deadline chips. Each chip is a flex row with a `shrink-0` experience type badge ("24h", "10d", "30d") at the leading edge, followed by a truncating client name. This ensures the type is always visible regardless of name length.
    - Color scheme matches the dashboard: blue (pending), red (failed/past due), green (done), amber (done late).
 
 3. **Dynamic grid rows** (`components/calendar-modal.tsx`) — The grid computes `numRows = calendarDays.length / 7` (4, 5, or 6 depending on month) and sets `gridTemplateRows: repeat(N, 1fr)` so rows stretch evenly to fill the modal. This eliminates blank space at the bottom for short months like February.
@@ -568,7 +573,7 @@ Added a full **"Lifecycle"** tab (originally named "Ongoing", renamed Feb 19) fo
 
 10. **Monthly history modal** (`components/monthly-history-modal.tsx`) — New Dialog modal listing all 17 monthly experiences for a client in a scrollable vertical list. Each row shows: status icon (colored: blue pending, green done, amber late, red overdue), month label ("2-Month", "3-Month", ...), status text, due date, and completion date if done. A notes dot indicator appears if the experience has notes. Clicking any row opens `ExperienceDetailModal` for that month, with `NotesModal` accessible from within. Opened via the History button on client rows in the Lifecycle tab.
 
-11. **Experience detail modal** (`components/experience-detail-modal.tsx`) — Uses `getExperienceLabel(experience)` for the header. Auto-fail logic updated to handle monthly experiences (by `month_number` comparison). `dueAt` useMemo dependency array now includes `experience.month_number`.
+11. **Experience detail modal** (`components/experience-detail-modal.tsx`) — Uses `getExperienceLabel(experience)` for the header. Auto-fail logic updated to handle monthly experiences (by `month_number` comparison). `dueAt` useMemo dependencies include `experience.month_number` and `client.initial_intake_date` so intake-date anchor changes recalculate immediately.
 
 12. **Notes modal** (`components/notes-modal.tsx`) — Uses `getExperienceLabel(experience)` for the header instead of `EXPERIENCE_LABELS[experience.experience_type]`.
 
@@ -593,7 +598,7 @@ After the migration is applied, `backfillMonthlyExperiences()` handles any futur
 ### Tab Rename: Active → Onboarding, Ongoing → Lifecycle (Feb 19, 2026)
 
 Renamed the two main tabs for clarity:
-- **"Active" → "Onboarding"** — reflects that this tab tracks the initial onboarding milestones (24-Hour, 14-Day, 30-Day).
+- **"Active" → "Onboarding"** — reflects that this tab tracks the initial onboarding milestones (24-Hour, 10-Day, 30-Day).
 - **"Ongoing" → "Lifecycle"** — reflects that this tab tracks the longer-term monthly relationship milestones.
 
 **What changed**:
@@ -621,7 +626,7 @@ Renamed the two main tabs for clarity:
 
 4. **Monthly history modal active/inactive styling** (`components/monthly-history-modal.tsx`) — `STATUS_STYLES` and `StatusIcon` now support a `pending_inactive` variant with grey styling and a grey clock icon, using the same `getStyleKey(derived, isActive)` pattern. Each row's `isActive` is computed by comparing `exp.month_number` to `getActiveStageMonthly(client, now)`.
 
-5. **Experience history modal includes onboarding** (`components/monthly-history-modal.tsx`) — The modal (still named `MonthlyHistoryModal` internally) now shows all experiences, not just monthly ones. The three initial onboarding experiences (24-Hour, 14-Day, 30-Day) are rendered at the top in a group with a left accent border (`border-l-2 border-muted-foreground/25`), followed by a horizontal divider, then the lifecycle rows. Active/inactive coloring is applied to onboarding rows using `getActiveStage()`. Modal title changed from "Monthly History" to "Experience History". Labels use `EXPERIENCE_LABELS[exp.experience_type]` for onboarding rows and `getMonthlyLabel(exp.month_number)` for lifecycle rows.
+5. **Experience history modal includes onboarding** (`components/monthly-history-modal.tsx`) — The modal (still named `MonthlyHistoryModal` internally) now shows all experiences, not just monthly ones. The three initial onboarding experiences (24-Hour, 10-Day, 30-Day) are rendered at the top in a group with a left accent border (`border-l-2 border-muted-foreground/25`), followed by a horizontal divider, then the lifecycle rows. Active/inactive coloring is applied to onboarding rows using `getActiveStage()`. Modal title changed from "Monthly History" to "Experience History". Labels use `EXPERIENCE_LABELS[exp.experience_type]` for onboarding rows and `getMonthlyLabel(exp.month_number)` for lifecycle rows.
 
 ### Inactive Overdue Node Display Fix (Feb 19, 2026)
 
@@ -712,6 +717,40 @@ Active pending nodes that are within 24 hours of their deadline now show a **yel
 3. **`pulse-ring-yellow` CSS class** (`app/globals.css`) — A `.pulse-ring-yellow` class is also defined alongside `.pulse-ring-blue` and `.pulse-ring-red`, and included in the `.group:hover` hide rule. However, the inline style approach in the component is the primary mechanism because Turbopack's CSS processing does not reliably pick up newly-added custom CSS classes without a dev server restart.
 
 4. **No changes to overdue or non-pending nodes** — Overdue nodes (red) and non-active/future nodes are unaffected. The yellow ring only applies to the active pending node when `secondsRemaining <= 86400`.
+
+### Intake Date Anchoring + 10-Day Migration Hardening (Feb 26, 2026)
+
+1. **Initial intake data model** (`lib/types.ts`, `supabase/migrations/20260226_add_initial_intake_and_day10.sql`) — Added `clients.initial_intake_date` and `clients.initial_intake_pulse_enabled` (default `true`). The migration also adds enum value `day10` and migrates `client_experiences.experience_type` rows from `day14` to `day10`.
+
+2. **Default due-date anchor rules** (`lib/deadlines.ts`) — `getEffectiveDueDate()` now enforces:
+   - `custom_due_at` always wins (never overridden)
+   - `hour24` and `day10` anchor to `initial_intake_date` when set, fallback to `signed_on_date`
+   - all other experience types stay anchored to `signed_on_date`
+
+3. **Legacy DB compatibility** (`lib/queries.ts`) — Added fallback behavior for partially migrated databases:
+   - `fetchClients()` normalizes legacy `day14` rows to `day10` in app state
+   - `createClientWithExperiences()` falls back when intake columns and/or `day10` enum are not yet available
+   - `updateClient()` falls back for missing intake columns and returns `false` for intake-only updates against non-migrated schemas
+
+4. **Intake reminder toggle placement** (`components/client-row.tsx`, `components/experience-detail-modal.tsx`) — For blank intake values, `Pulse reminder: On/Off` is now hidden in row actions instead of inline in the date column, reducing visual clutter. It is available in:
+   - row `...` dropdown (with bell icon state: `BellRing` / `BellOff`)
+   - Experience Detail modal (`Intake reminder pulse when blank`)
+
+5. **Three-state intake display semantics** (`components/client-row.tsx`, `app/globals.css`) — The Initial Intake row now uses explicit states:
+   - `set`: blue text
+   - `missing_warn` (blank + pulse enabled): amber text with pulse reminder treatment
+   - `missing_muted` (blank + pulse disabled): muted slate text, no pulse, and value label `N/A` (instead of `Not set`)
+   Pulse reminder styling keeps an amber-tinted background with a blue pulse border.
+
+6. **Date-row visual polish** (`components/client-row.tsx`) — Signed-on and initial-intake rows are aligned on the same left edge, with distinct text weight/shade for quick scanning.
+
+7. **Name/date divider polish** (`components/client-row.tsx`) — Added a subtle divider between client name and date metadata. Divider width now follows measured rendered name width (including wrapped names) via `ResizeObserver`, rather than fixed-width buckets.
+
+8. **Persistence failure feedback** (`components/client-row.tsx`, `components/experience-detail-modal.tsx`) — Intake date and pulse toggles now show toasts and rollback optimistic local state if DB persistence fails.
+
+9. **Migration execution note** — In Supabase SQL editor, the `day10` migration must be run in two executions due to PostgreSQL enum commit requirements:
+   - Step 1: add intake columns + add enum value `day10`
+   - Step 2: update `client_experiences` rows from `day14` to `day10`
 
 ---
 

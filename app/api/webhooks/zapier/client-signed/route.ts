@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
 
     const initialExperiences = [
       { client_id: client.id, experience_type: 'hour24' },
-      { client_id: client.id, experience_type: 'day14' },
+      { client_id: client.id, experience_type: 'day10' },
       { client_id: client.id, experience_type: 'day30' },
     ]
 

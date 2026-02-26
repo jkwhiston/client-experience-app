@@ -10,7 +10,7 @@ const FIRM_TIMEZONE = process.env.NEXT_PUBLIC_FIRM_TIMEZONE || 'America/New_York
  * All deadlines are 11:59 PM in the firm timezone.
  *
  * 24h: 11:59 PM on signed_on_date + 1 day
- * 14d: 11:59 PM on signed_on_date + 14 days
+ * 10d: 11:59 PM on anchor date + 10 days
  * 30d: 11:59 PM on signed_on_date + 30 days
  * monthly: 11:59 PM on signed_on_date + N months (uses addMonths for proper month-length handling)
  */
@@ -31,8 +31,8 @@ export function getDueAt(
       case 'hour24':
         daysToAdd = 1
         break
-      case 'day14':
-        daysToAdd = 14
+      case 'day10':
+        daysToAdd = 10
         break
       case 'day30':
         daysToAdd = 30
@@ -61,12 +61,26 @@ export function getDueAt(
 export function getEffectiveDueDate(
   experience: { custom_due_at: string | null; experience_type: ExperienceType; month_number?: number | null },
   signedOnDate: string | Date,
-  firmTz: string = FIRM_TIMEZONE
+  firmTz: string = FIRM_TIMEZONE,
+  initialIntakeDate?: string | Date | null
 ): Date {
   if (experience.custom_due_at) {
     return new Date(experience.custom_due_at)
   }
-  return getDueAt(signedOnDate, experience.experience_type, firmTz, experience.month_number)
+
+  const anchorDate = getDefaultAnchorDate(experience.experience_type, signedOnDate, initialIntakeDate)
+  return getDueAt(anchorDate, experience.experience_type, firmTz, experience.month_number)
+}
+
+function getDefaultAnchorDate(
+  experienceType: ExperienceType,
+  signedOnDate: string | Date,
+  initialIntakeDate?: string | Date | null
+): string | Date {
+  if ((experienceType === 'hour24' || experienceType === 'day10') && initialIntakeDate) {
+    return initialIntakeDate
+  }
+  return signedOnDate
 }
 
 /**
@@ -133,7 +147,7 @@ export function getActiveStage(
     const exp = client.client_experiences.find((e) => e.experience_type === expType)
     if (!exp) continue
 
-    const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+    const dueAt = getEffectiveDueDate(exp, client.signed_on_date, FIRM_TIMEZONE, client.initial_intake_date)
     const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
     const derivedStatus = getDerivedStatus({
       status: exp.status,
@@ -164,7 +178,7 @@ export function getNextActiveDeadline(
     if (!exp) continue
     if (exp.status !== 'pending') continue
 
-    const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+    const dueAt = getEffectiveDueDate(exp, client.signed_on_date, FIRM_TIMEZONE, client.initial_intake_date)
     const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
 
     if (nearest === null || dueAtEff.getTime() < nearest.getTime()) {
@@ -258,7 +272,7 @@ export function getUrgency(
     case 'hour24':
       if (secondsRemaining <= 8 * 3600) return 'red'
       return 'normal'
-    case 'day14':
+    case 'day10':
     case 'day30':
       if (secondsRemaining <= 2 * 86400) return 'red'
       if (secondsRemaining <= 5 * 86400) return 'yellow'
@@ -472,7 +486,7 @@ export function getActiveStageMonthly(
   const monthlyExps = getMonthlyExperiences(client)
 
   for (const exp of monthlyExps) {
-    const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+    const dueAt = getEffectiveDueDate(exp, client.signed_on_date, FIRM_TIMEZONE, client.initial_intake_date)
     const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
     const derivedStatus = getDerivedStatus({
       status: exp.status,
@@ -513,7 +527,7 @@ export function getVisibleMonthlyExperiences(
 
   for (const chunk of chunks) {
     const hasIncomplete = chunk.some((exp) => {
-      const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+      const dueAt = getEffectiveDueDate(exp, client.signed_on_date, FIRM_TIMEZONE, client.initial_intake_date)
       const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
       const derived = getDerivedStatus({
         status: exp.status,
@@ -542,7 +556,7 @@ export function getNextMonthlyDeadline(
   for (const exp of monthlyExps) {
     if (exp.status !== 'pending') continue
 
-    const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+    const dueAt = getEffectiveDueDate(exp, client.signed_on_date, FIRM_TIMEZONE, client.initial_intake_date)
     const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
 
     if (nearest === null || dueAtEff.getTime() < nearest.getTime()) {

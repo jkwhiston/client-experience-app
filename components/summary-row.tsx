@@ -15,13 +15,13 @@ interface SummaryRowProps {
   onCountClick: (expType: ExperienceType, filter: StatusFilter) => void
 }
 
-const EXPERIENCE_TYPES: ExperienceType[] = ['hour24', 'day14', 'day30']
+const EXPERIENCE_TYPES: ExperienceType[] = ['hour24', 'day10', 'day30']
 
-type InitialExperienceType = 'hour24' | 'day14' | 'day30'
+type InitialExperienceType = 'hour24' | 'day10' | 'day30'
 
 const CARD_STYLES: Record<InitialExperienceType, { card: string }> = {
   hour24: { card: 'border-l-4 border-l-blue-500 bg-blue-500/5' },
-  day14:  { card: 'border-l-4 border-l-violet-500 bg-violet-500/5' },
+  day10:  { card: 'border-l-4 border-l-violet-500 bg-violet-500/5' },
   day30:  { card: 'border-l-4 border-l-teal-500 bg-teal-500/5' },
 }
 

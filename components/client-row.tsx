@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import type {
   ClientWithExperiences,
   FocusTab,
@@ -18,7 +18,9 @@ import {
   getNowEffective,
   getDerivedStatus,
 } from '@/lib/deadlines'
+import { cn } from '@/lib/utils'
 import { updateClient, deleteClient } from '@/lib/queries'
+import { toast } from 'sonner'
 import { getClientFont, getGoogleFontUrl } from '@/lib/client-fonts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,7 +41,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { MoreHorizontal, Pause, Play, Archive, ArchiveRestore, Trash2, History, X, Check } from 'lucide-react'
+import { MoreHorizontal, Pause, Play, Archive, ArchiveRestore, Trash2, History, X, Check, BellRing, BellOff } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -74,12 +76,17 @@ export function ClientRow({
 }: ClientRowProps) {
   const [editingName, setEditingName] = useState(false)
   const [editingDate, setEditingDate] = useState(false)
+  const [editingIntakeDate, setEditingIntakeDate] = useState(false)
   const [nameValue, setNameValue] = useState(client.name)
   const [dateValue, setDateValue] = useState(client.signed_on_date)
+  const [intakeDateValue, setIntakeDateValue] = useState(client.initial_intake_date ?? '')
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
+  const nameTextRef = useRef<HTMLSpanElement>(null)
   const dateRef = useRef<HTMLInputElement>(null)
+  const intakeDateRef = useRef<HTMLInputElement>(null)
+  const [nameDividerWidthPx, setNameDividerWidthPx] = useState(120)
 
   const isArchived = activeTab === 'archived'
   const isOngoing = activeTab === 'lifecycle'
@@ -112,6 +119,35 @@ export function ClientRow({
       await updateClient(client.id, { signed_on_date: dateValue })
     } else {
       setDateValue(client.signed_on_date)
+    }
+  }
+
+  async function saveIntakeDate() {
+    setEditingIntakeDate(false)
+    const prevIntakeDate = client.initial_intake_date
+    const normalized = intakeDateValue || null
+    if (normalized !== client.initial_intake_date) {
+      updateClientLocal(client.id, (c) => ({ ...c, initial_intake_date: normalized }))
+      const ok = await updateClient(client.id, { initial_intake_date: normalized })
+      if (!ok) {
+        updateClientLocal(client.id, (c) => ({ ...c, initial_intake_date: prevIntakeDate }))
+        setIntakeDateValue(prevIntakeDate ?? '')
+        toast('Could not save initial intake date.')
+      }
+    } else {
+      setIntakeDateValue(client.initial_intake_date ?? '')
+    }
+  }
+
+  async function handleIntakePulseToggleRow() {
+    if (client.initial_intake_date) return
+    const previous = client.initial_intake_pulse_enabled
+    const nextValue = !previous
+    updateClientLocal(client.id, (c) => ({ ...c, initial_intake_pulse_enabled: nextValue }))
+    const ok = await updateClient(client.id, { initial_intake_pulse_enabled: nextValue })
+    if (!ok) {
+      updateClientLocal(client.id, (c) => ({ ...c, initial_intake_pulse_enabled: previous }))
+      toast('Could not update intake pulse setting.')
     }
   }
 
@@ -179,10 +215,53 @@ export function ClientRow({
     return `${m}/${d}/${y}`
   }
 
+  const intakeVisualState = client.initial_intake_date
+    ? 'set'
+    : client.initial_intake_pulse_enabled
+      ? 'missing_warn'
+      : 'missing_muted'
+  const shouldPulseIntakeReminder = intakeVisualState === 'missing_warn'
+  const intakeLabelClass = intakeVisualState === 'set'
+    ? 'text-blue-500/85 font-medium'
+    : intakeVisualState === 'missing_warn'
+      ? 'text-amber-300 font-medium'
+      : 'text-slate-300/85 font-medium'
+  const intakeValueClass = intakeVisualState === 'set'
+    ? 'text-blue-400/95'
+    : intakeVisualState === 'missing_warn'
+      ? 'text-amber-200'
+      : 'text-slate-200/90'
+
+  useEffect(() => {
+    const updateDividerWidth = () => {
+      const el = nameTextRef.current
+      if (!el) return
+      const measured = Math.round(el.getBoundingClientRect().width)
+      // Keep a subtle min/max while tracking rendered width, including wrapped names.
+      const clamped = Math.max(80, Math.min(measured, 200))
+      setNameDividerWidthPx(clamped)
+    }
+
+    updateDividerWidth()
+
+    const el = nameTextRef.current
+    if (!el) return
+
+    const observer = new ResizeObserver(updateDividerWidth)
+    observer.observe(el)
+    if (el.parentElement) observer.observe(el.parentElement)
+    window.addEventListener('resize', updateDividerWidth)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updateDividerWidth)
+    }
+  }, [client.name, editingName])
+
   function getSegmentStatuses(exps: ClientExperience[]): ('done' | 'done_late' | 'failed' | 'pending')[] {
     const nowEff = getNowEffective(client, now)
     return exps.map((exp) => {
-      const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+      const dueAt = getEffectiveDueDate(exp, client.signed_on_date, undefined, client.initial_intake_date)
       const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
       const status = getDerivedStatus({
         status: exp.status,
@@ -260,9 +339,15 @@ export function ClientRow({
             className="text-base font-bold text-left text-wrap break-words hover:text-primary transition-colors"
             style={nameFontStyle}
           >
-            {client.name}
+            <span ref={nameTextRef}>{client.name}</span>
           </button>
         )}
+
+        <div
+          className="my-1.5 h-px bg-border/40 rounded-full"
+          style={{ width: `${nameDividerWidthPx}px` }}
+          aria-hidden
+        />
 
         {editingDate && !isArchived ? (
           <Input
@@ -278,7 +363,7 @@ export function ClientRow({
                 setEditingDate(false)
               }
             }}
-            className="h-6 text-xs p-1 mt-1"
+            className="h-6 text-xs p-1 mt-0.5"
             autoFocus
           />
         ) : (
@@ -289,10 +374,55 @@ export function ClientRow({
                 setTimeout(() => dateRef.current?.focus(), 0)
               }
             }}
-            className="text-xs text-muted-foreground text-left mt-0.5 hover:text-foreground transition-colors"
+            className="text-xs text-muted-foreground/90 text-left mt-0.5 hover:text-foreground transition-colors"
           >
-            Signed on: {formatSignedDate(client.signed_on_date)}
+            <span className="font-normal">Signed on:</span>{' '}
+            <span className="font-medium text-muted-foreground">{formatSignedDate(client.signed_on_date)}</span>
           </button>
+        )}
+
+        {editingIntakeDate && !isArchived ? (
+          <Input
+            ref={intakeDateRef}
+            type="date"
+            value={intakeDateValue}
+            onChange={(e) => setIntakeDateValue(e.target.value)}
+            onBlur={saveIntakeDate}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveIntakeDate()
+              if (e.key === 'Escape') {
+                setIntakeDateValue(client.initial_intake_date ?? '')
+                setEditingIntakeDate(false)
+              }
+            }}
+            className="h-6 text-xs p-1 mt-0.5"
+            autoFocus
+          />
+        ) : (
+          <div className="mt-0.5">
+            <button
+              onClick={() => {
+                if (!isArchived) {
+                  setEditingIntakeDate(true)
+                  setTimeout(() => intakeDateRef.current?.focus(), 0)
+                }
+              }}
+              className={cn(
+                'text-xs text-left hover:text-foreground transition-colors',
+                intakeLabelClass,
+                shouldPulseIntakeReminder && 'intake-date-reminder'
+              )}
+            >
+              <span className="font-medium">Initial intake:</span>{' '}
+              <span className={cn('font-semibold', intakeValueClass)}>
+                {client.initial_intake_date
+                  ? formatSignedDate(client.initial_intake_date)
+                  : intakeVisualState === 'missing_muted'
+                    ? 'N/A'
+                    : 'Not set'}
+              </span>
+            </button>
+          </div>
         )}
 
         <div className="flex items-center gap-1 mt-2">
@@ -321,6 +451,21 @@ export function ClientRow({
                   <Archive className="h-3.5 w-3.5 mr-2" />
                   Archive
                 </DropdownMenuItem>
+                {!client.initial_intake_date && (
+                  <DropdownMenuItem onClick={handleIntakePulseToggleRow}>
+                    {client.initial_intake_pulse_enabled ? (
+                      <>
+                        <BellRing className="h-3.5 w-3.5 mr-2" />
+                        Pulse reminder: On
+                      </>
+                    ) : (
+                      <>
+                        <BellOff className="h-3.5 w-3.5 mr-2" />
+                        Pulse reminder: Off
+                      </>
+                    )}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-red-500 focus:text-red-500"

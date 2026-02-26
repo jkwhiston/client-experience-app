@@ -89,7 +89,7 @@ export function MonthlyHistoryModal({
     return EXPERIENCE_TYPES.map((expType) => {
       const exp = client.client_experiences.find((e) => e.experience_type === expType)
       if (!exp) return null
-      const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+      const dueAt = getEffectiveDueDate(exp, client.signed_on_date, undefined, client.initial_intake_date)
       const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
       const derived = getDerivedStatus({
         status: exp.status,
@@ -105,7 +105,7 @@ export function MonthlyHistoryModal({
   const experienceData = useMemo(() => {
     const nowEff = getNowEffective(client, now)
     return monthlyExps.map((exp) => {
-      const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+      const dueAt = getEffectiveDueDate(exp, client.signed_on_date, undefined, client.initial_intake_date)
       const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
       const derived = getDerivedStatus({
         status: exp.status,

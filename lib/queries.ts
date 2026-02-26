@@ -4,6 +4,32 @@ import { MONTHLY_MONTH_RANGE } from './types'
 
 const supabase = createClient()
 
+function normalizeClient(client: ClientWithExperiences): ClientWithExperiences {
+  return {
+    ...client,
+    initial_intake_date: client.initial_intake_date ?? null,
+    initial_intake_pulse_enabled: client.initial_intake_pulse_enabled ?? true,
+    client_experiences: client.client_experiences.map((exp) => {
+      // Backward-compat: older databases still store the middle onboarding node as "day14".
+      // Normalize it to "day10" in app state so rendering and deadline logic stay consistent.
+      if ((exp.experience_type as unknown as string) === 'day14') {
+        return { ...exp, experience_type: 'day10' as ExperienceType }
+      }
+      return exp
+    }),
+  }
+}
+
+function hasMissingIntakeColumnsError(error: unknown): boolean {
+  const message = String((error as { message?: string } | null)?.message ?? '').toLowerCase()
+  return message.includes('initial_intake_date') || message.includes('initial_intake_pulse_enabled')
+}
+
+function hasMissingDay10EnumError(error: unknown): boolean {
+  const message = String((error as { message?: string } | null)?.message ?? '').toLowerCase()
+  return message.includes('day10') && message.includes('experience_type')
+}
+
 export async function fetchClients(): Promise<ClientWithExperiences[]> {
   const { data, error } = await supabase
     .from('clients')
@@ -15,34 +41,67 @@ export async function fetchClients(): Promise<ClientWithExperiences[]> {
     return []
   }
 
-  return (data as ClientWithExperiences[]) || []
+  return ((data as ClientWithExperiences[]) || []).map(normalizeClient)
 }
 
 export async function createClientWithExperiences(
   name: string,
-  signedOnDate: string
+  signedOnDate: string,
+  initialIntakeDate?: string | null,
+  initialIntakePulseEnabled: boolean = true
 ): Promise<ClientWithExperiences | null> {
-  const { data: client, error: clientError } = await supabase
+  let { data: client, error: clientError } = await supabase
     .from('clients')
-    .insert({ name, signed_on_date: signedOnDate })
+    .insert({
+      name,
+      signed_on_date: signedOnDate,
+      initial_intake_date: initialIntakeDate ?? null,
+      initial_intake_pulse_enabled: initialIntakePulseEnabled,
+    })
     .select()
     .single()
+
+  // Backward-compat for DBs where intake columns haven't been migrated yet.
+  if (clientError && hasMissingIntakeColumnsError(clientError)) {
+    const fallback = await supabase
+      .from('clients')
+      .insert({ name, signed_on_date: signedOnDate })
+      .select()
+      .single()
+    client = fallback.data
+    clientError = fallback.error
+  }
 
   if (clientError || !client) {
     console.error('Error creating client:', clientError)
     return null
   }
 
-  const initialExperiences: { client_id: string; experience_type: ExperienceType }[] = [
+  let initialExperiences: { client_id: string; experience_type: ExperienceType }[] = [
     { client_id: client.id, experience_type: 'hour24' },
-    { client_id: client.id, experience_type: 'day14' },
+    { client_id: client.id, experience_type: 'day10' },
     { client_id: client.id, experience_type: 'day30' },
   ]
 
-  const { data: initialExps, error: initialError } = await supabase
+  let { data: initialExps, error: initialError } = await supabase
     .from('client_experiences')
     .insert(initialExperiences)
     .select()
+
+  // Backward-compat for DBs where the enum value is still day14.
+  if (initialError && hasMissingDay10EnumError(initialError)) {
+    initialExperiences = [
+      { client_id: client.id, experience_type: 'hour24' },
+      { client_id: client.id, experience_type: 'day14' as ExperienceType },
+      { client_id: client.id, experience_type: 'day30' },
+    ]
+    const fallbackInitial = await supabase
+      .from('client_experiences')
+      .insert(initialExperiences)
+      .select()
+    initialExps = fallbackInitial.data
+    initialError = fallbackInitial.error
+  }
 
   if (initialError) {
     console.error('Error creating initial experiences:', initialError)
@@ -65,10 +124,10 @@ export async function createClientWithExperiences(
     allExps = [...allExps, ...monthlyExps]
   }
 
-  return {
+  return normalizeClient({
     ...client,
     client_experiences: allExps,
-  } as ClientWithExperiences
+  } as ClientWithExperiences)
 }
 
 /**
@@ -139,10 +198,28 @@ export async function updateClient(
   id: string,
   updates: Record<string, unknown>
 ): Promise<boolean> {
-  const { error } = await supabase
+  let { error } = await supabase
     .from('clients')
     .update(updates)
     .eq('id', id)
+
+  if (error && hasMissingIntakeColumnsError(error)) {
+    const fallbackUpdates = { ...updates }
+    delete fallbackUpdates.initial_intake_date
+    delete fallbackUpdates.initial_intake_pulse_enabled
+
+    // If nothing remains to update, the caller is trying to persist intake-only fields
+    // on a DB that does not yet have those columns.
+    if (Object.keys(fallbackUpdates).length === 0) {
+      return false
+    }
+
+    const fallback = await supabase
+      .from('clients')
+      .update(fallbackUpdates)
+      .eq('id', id)
+    error = fallback.error
+  }
 
   if (error) {
     console.error('Error updating client:', error)

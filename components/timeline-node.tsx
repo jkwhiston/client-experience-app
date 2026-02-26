@@ -62,8 +62,8 @@ export function TimelineNode({
   const label = getExperienceLabel(experience)
 
   const dueAt = useMemo(
-    () => getEffectiveDueDate(experience, client.signed_on_date),
-    [client.signed_on_date, experience.custom_due_at, experience.experience_type, experience.month_number]
+    () => getEffectiveDueDate(experience, client.signed_on_date, undefined, client.initial_intake_date),
+    [client.signed_on_date, client.initial_intake_date, experience.custom_due_at, experience.experience_type, experience.month_number]
   )
   const dueAtEffective = useMemo(
     () => getDueAtEffective(dueAt, client.paused_total_seconds),
@@ -89,7 +89,7 @@ export function TimelineNode({
     const activeStageIdx = EXPERIENCE_TYPES.findIndex((t) => {
       const exp = client.client_experiences.find((e) => e.experience_type === t)
       if (!exp) return false
-      const d = getEffectiveDueDate(exp, client.signed_on_date)
+      const d = getEffectiveDueDate(exp, client.signed_on_date, undefined, client.initial_intake_date)
       const dEff = getDueAtEffective(d, client.paused_total_seconds)
       const status = getDerivedStatus({
         status: exp.status,

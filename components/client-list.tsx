@@ -6,7 +6,7 @@ import { CircleCheck } from 'lucide-react'
 
 const DEADLINE_SORT_LABELS: Record<string, string> = {
   deadline_hour24: '24-Hour',
-  deadline_day14: '14-Day',
+  deadline_day10: '10-Day',
   deadline_day30: '30-Day',
   next_monthly_deadline: 'Monthly',
 }

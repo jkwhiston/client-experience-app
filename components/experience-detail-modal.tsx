@@ -67,6 +67,7 @@ export function ExperienceDetailModal({
   updateClientLocal,
 }: ExperienceDetailModalProps) {
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [intakeCalendarOpen, setIntakeCalendarOpen] = useState(false)
   const [completionCalendarOpen, setCompletionCalendarOpen] = useState(false)
 
   // Staged date+time for the completion date picker
@@ -84,11 +85,13 @@ export function ExperienceDetailModal({
 
   // Controlled calendar months for stable navigation
   const [signedOnMonth, setSignedOnMonth] = useState<Date>(() => parseISO(client.signed_on_date))
+  const [intakeMonth, setIntakeMonth] = useState<Date>(() => client.initial_intake_date ? parseISO(client.initial_intake_date) : new Date())
   const [deadlineMonth, setDeadlineMonth] = useState<Date>(() => new Date())
   const [completionMonth, setCompletionMonth] = useState<Date>(() => new Date())
 
   // Direct date entry text inputs
   const [signedOnInput, setSignedOnInput] = useState('')
+  const [intakeInput, setIntakeInput] = useState('')
   const [deadlineInput, setDeadlineInput] = useState('')
   const [completionInput, setCompletionInput] = useState('')
 
@@ -96,8 +99,8 @@ export function ExperienceDetailModal({
   const label = getExperienceLabel(experience)
 
   const dueAt = useMemo(
-    () => getEffectiveDueDate(experience, client.signed_on_date),
-    [client.signed_on_date, experience.custom_due_at, experience.experience_type, experience.month_number]
+    () => getEffectiveDueDate(experience, client.signed_on_date, undefined, client.initial_intake_date),
+    [client.signed_on_date, client.initial_intake_date, experience.custom_due_at, experience.experience_type, experience.month_number]
   )
   const dueAtEffective = useMemo(
     () => getDueAtEffective(dueAt, client.paused_total_seconds),
@@ -236,6 +239,15 @@ export function ExperienceDetailModal({
     setCalendarOpen(open)
   }
 
+  function handleIntakeCalendarOpen(open: boolean) {
+    if (open) {
+      const intakeDate = client.initial_intake_date ? parseISO(client.initial_intake_date) : new Date()
+      setIntakeMonth(intakeDate)
+      setIntakeInput('')
+    }
+    setIntakeCalendarOpen(open)
+  }
+
   function formatSignedDate(dateStr: string): string {
     const [y, m, d] = dateStr.split('-')
     return `${m}/${d}/${y}`
@@ -252,6 +264,35 @@ export function ExperienceDetailModal({
     updateClientLocal(client.id, (c) => ({ ...c, signed_on_date: dateStr }))
     setCalendarOpen(false)
     await updateClient(client.id, { signed_on_date: dateStr })
+  }
+
+  async function handleIntakeDateSelect(date: Date | undefined) {
+    if (!date) return
+    const dateStr = format(date, 'yyyy-MM-dd')
+    if (dateStr === client.initial_intake_date) {
+      setIntakeCalendarOpen(false)
+      return
+    }
+
+    const prev = client.initial_intake_date
+    updateClientLocal(client.id, (c) => ({ ...c, initial_intake_date: dateStr }))
+    setIntakeCalendarOpen(false)
+    const ok = await updateClient(client.id, { initial_intake_date: dateStr })
+    if (!ok) {
+      updateClientLocal(client.id, (c) => ({ ...c, initial_intake_date: prev }))
+      toast('Could not save initial intake date.')
+    }
+  }
+
+  async function handleIntakePulseToggle() {
+    const previous = client.initial_intake_pulse_enabled
+    const nextValue = !previous
+    updateClientLocal(client.id, (c) => ({ ...c, initial_intake_pulse_enabled: nextValue }))
+    const ok = await updateClient(client.id, { initial_intake_pulse_enabled: nextValue })
+    if (!ok) {
+      updateClientLocal(client.id, (c) => ({ ...c, initial_intake_pulse_enabled: previous }))
+      toast('Could not update intake pulse setting.')
+    }
   }
 
   const firmTz = process.env.NEXT_PUBLIC_FIRM_TIMEZONE || 'America/New_York'
@@ -601,6 +642,73 @@ export function ExperienceDetailModal({
               </Popover>
             </div>
 
+            {/* Initial Intake */}
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <CalendarIcon className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Initial Intake
+                </span>
+              </div>
+              <Popover open={intakeCalendarOpen} onOpenChange={handleIntakeCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="text-sm text-muted-foreground hover:text-primary transition-colors cursor-pointer text-left"
+                  >
+                    {client.initial_intake_date ? formatSignedDate(client.initial_intake_date) : 'Not set'}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <div className="px-3 pt-3 pb-1">
+                    <input
+                      type="text"
+                      placeholder="MM/DD/YYYY"
+                      value={intakeInput}
+                      onChange={(e) => {
+                        const v = formatDateInput(intakeInput, e.target.value)
+                        setIntakeInput(v)
+                        const parsed = parseDateInput(v)
+                        if (parsed) setIntakeMonth(parsed)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const parsed = parseDateInput(intakeInput)
+                          if (parsed) handleIntakeDateSelect(parsed)
+                        }
+                      }}
+                      className="w-full h-8 text-sm rounded-md border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+                    />
+                  </div>
+                  <Calendar
+                    mode="single"
+                    fixedWeeks
+                    selected={client.initial_intake_date ? parseISO(client.initial_intake_date) : undefined}
+                    onSelect={handleIntakeDateSelect}
+                    month={intakeMonth}
+                    onMonthChange={setIntakeMonth}
+                  />
+                  <div className="border-t border-border px-3 py-2 flex items-center justify-between">
+                    <button
+                      onClick={async () => {
+                        const prev = client.initial_intake_date
+                        updateClientLocal(client.id, (c) => ({ ...c, initial_intake_date: null }))
+                        setIntakeCalendarOpen(false)
+                        const ok = await updateClient(client.id, { initial_intake_date: null })
+                        if (!ok) {
+                          updateClientLocal(client.id, (c) => ({ ...c, initial_intake_date: prev }))
+                          toast('Could not clear initial intake date.')
+                        }
+                      }}
+                      className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                    <span />
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
             {/* Deadline */}
             <div className="space-y-1">
               <div className="flex items-center gap-1.5">
@@ -712,6 +820,20 @@ export function ExperienceDetailModal({
               </Popover>
             </div>
           </div>
+
+          {!client.initial_intake_date && (
+            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+              <span className="text-xs text-muted-foreground">
+                Intake reminder pulse when blank
+              </span>
+              <button
+                onClick={handleIntakePulseToggle}
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                {client.initial_intake_pulse_enabled ? 'On' : 'Off'}
+              </button>
+            </div>
+          )}
 
           {client.paused && (
             <div className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-1.5">

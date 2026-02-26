@@ -11,7 +11,7 @@ interface FocusTabsProps {
 const TABS: { value: FocusTab; label: string }[] = [
   { value: 'overview', label: 'Overview' },
   { value: 'hour24', label: '24-Hour Focus' },
-  { value: 'day14', label: '14-Day Focus' },
+  { value: 'day10', label: '10-Day Focus' },
   { value: 'day30', label: '30-Day Focus' },
 ]
 

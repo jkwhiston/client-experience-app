@@ -28,6 +28,7 @@ export function AddClientDialog({
 }: AddClientDialogProps) {
   const [name, setName] = useState('')
   const [signedOnDate, setSignedOnDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [initialIntakeDate, setInitialIntakeDate] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -35,13 +36,18 @@ export function AddClientDialog({
     if (!name.trim() || !signedOnDate) return
 
     setLoading(true)
-    const client = await createClientWithExperiences(name.trim(), signedOnDate)
+    const client = await createClientWithExperiences(
+      name.trim(),
+      signedOnDate,
+      initialIntakeDate || null
+    )
     setLoading(false)
 
     if (client) {
       onAddClient(client)
       setName('')
       setSignedOnDate(format(new Date(), 'yyyy-MM-dd'))
+      setInitialIntakeDate('')
       onOpenChange(false)
     }
   }
@@ -71,6 +77,15 @@ export function AddClientDialog({
               value={signedOnDate}
               onChange={(e) => setSignedOnDate(e.target.value)}
               required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="initial-intake-date">Initial Intake Date (optional)</Label>
+            <Input
+              id="initial-intake-date"
+              type="date"
+              value={initialIntakeDate}
+              onChange={(e) => setInitialIntakeDate(e.target.value)}
             />
           </div>
           <DialogFooter>

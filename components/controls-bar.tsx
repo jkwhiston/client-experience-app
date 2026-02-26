@@ -51,7 +51,7 @@ const ACTIVE_SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: 'name_desc', label: 'Name Z→A' },
   { value: 'next_active_deadline', label: 'Next Active Deadline' },
   { value: 'deadline_hour24', label: 'Next 24-Hour deadline' },
-  { value: 'deadline_day14', label: 'Next 14-Day deadline' },
+  { value: 'deadline_day10', label: 'Next 10-Day deadline' },
   { value: 'deadline_day30', label: 'Next 30-Day deadline' },
 ]
 

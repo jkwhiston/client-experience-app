@@ -98,7 +98,7 @@ export function ClientDashboard() {
       )
       if (!exp) return 'pending'
 
-      const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+      const dueAt = getEffectiveDueDate(exp, client.signed_on_date, undefined, client.initial_intake_date)
       const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
       const nowEff = getNowEffective(client, now)
 
@@ -148,7 +148,7 @@ export function ClientDashboard() {
       let clientAllDueDone = true
 
       for (const exp of monthlyExps) {
-        const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+        const dueAt = getEffectiveDueDate(exp, client.signed_on_date, undefined, client.initial_intake_date)
         const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
 
         // Only count experiences that are currently due (deadline is in the past or within now)
@@ -174,7 +174,7 @@ export function ClientDashboard() {
 
       if (monthlyExps.length > 0) {
         const hasAnyDue = monthlyExps.some((exp) => {
-          const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+          const dueAt = getEffectiveDueDate(exp, client.signed_on_date, undefined, client.initial_intake_date)
           const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
           return getNowEffective(client, now) >= dueAtEff
         })
@@ -220,7 +220,7 @@ export function ClientDashboard() {
           const monthlyExps = getMonthlyExperiences(client)
           const nowEff = getNowEffective(client, now)
           return monthlyExps.some((exp) => {
-            const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+            const dueAt = getEffectiveDueDate(exp, client.signed_on_date, undefined, client.initial_intake_date)
             const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
             const derived = getDerivedStatus({
               status: exp.status,
@@ -253,7 +253,7 @@ export function ClientDashboard() {
     } else if (activeTab === 'onboarding') {
       if (
         sortOption === 'deadline_hour24' ||
-        sortOption === 'deadline_day14' ||
+        sortOption === 'deadline_day10' ||
         sortOption === 'deadline_day30'
       ) {
         const expType = sortOption.replace('deadline_', '') as ExperienceType
@@ -277,16 +277,16 @@ export function ClientDashboard() {
         case 'name_desc':
           return b.name.localeCompare(a.name)
         case 'deadline_hour24':
-        case 'deadline_day14':
+        case 'deadline_day10':
         case 'deadline_day30': {
           const expType = sortOption.replace('deadline_', '') as ExperienceType
           const expA = a.client_experiences.find(e => e.experience_type === expType)
           const expB = b.client_experiences.find(e => e.experience_type === expType)
           const dueA = expA
-            ? getDueAtEffective(getEffectiveDueDate(expA, a.signed_on_date), a.paused_total_seconds)
+            ? getDueAtEffective(getEffectiveDueDate(expA, a.signed_on_date, undefined, a.initial_intake_date), a.paused_total_seconds)
             : new Date(0)
           const dueB = expB
-            ? getDueAtEffective(getEffectiveDueDate(expB, b.signed_on_date), b.paused_total_seconds)
+            ? getDueAtEffective(getEffectiveDueDate(expB, b.signed_on_date, undefined, b.initial_intake_date), b.paused_total_seconds)
             : new Date(0)
           return dueA.getTime() - dueB.getTime()
         }
@@ -330,7 +330,7 @@ export function ClientDashboard() {
       const archivedClients = clients.filter((c) => c.is_archived)
       if (archivedClients.length === 0) return
 
-      const headers = ['Name', 'Signed On', 'Archived At', '24h Status', '14d Status', '30d Status']
+      const headers = ['Name', 'Signed On', 'Archived At', '24h Status', '10d Status', '30d Status']
       const rows = archivedClients.map((c) => {
         const getStatus = (type: ExperienceType) => {
           const exp = c.client_experiences.find((e) => e.experience_type === type)
@@ -341,7 +341,7 @@ export function ClientDashboard() {
           c.signed_on_date,
           c.archived_at || '',
           getStatus('hour24'),
-          getStatus('day14'),
+          getStatus('day10'),
           getStatus('day30'),
         ]
       })

@@ -93,7 +93,7 @@ export function CalendarModal({
         if (!isInitial && !isMonthly) continue
         if (isMonthly && !showOngoing) continue
 
-        const dueAt = getEffectiveDueDate(exp, client.signed_on_date)
+        const dueAt = getEffectiveDueDate(exp, client.signed_on_date, undefined, client.initial_intake_date)
         const dueAtEff = getDueAtEffective(dueAt, client.paused_total_seconds)
         const derived = getDerivedStatus({
           status: exp.status,

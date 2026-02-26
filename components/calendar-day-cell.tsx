@@ -39,7 +39,7 @@ function getChipStyleKey(event: CalendarEvent): string {
 
 const INITIAL_SHORT_LABELS: Partial<Record<ExperienceType, string>> = {
   hour24: '24h',
-  day14: '14d',
+  day10: '10d',
   day30: '30d',
 }
 
