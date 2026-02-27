@@ -1,14 +1,20 @@
 import { createClient } from '@/lib/supabase/client'
-import type { ClientWithExperiences, ExperienceType } from './types'
+import type { ClientPersonLink, ClientWithExperiences, ExperienceType } from './types'
 import { MONTHLY_MONTH_RANGE } from './types'
 
 const supabase = createClient()
 
 function normalizeClient(client: ClientWithExperiences): ClientWithExperiences {
+  const personLinks = [...(client.client_people_links ?? [])].sort((a, b) => {
+    if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+    return a.display_name.localeCompare(b.display_name)
+  })
+
   return {
     ...client,
     initial_intake_date: client.initial_intake_date ?? null,
     initial_intake_pulse_enabled: client.initial_intake_pulse_enabled ?? true,
+    client_people_links: personLinks,
     client_experiences: client.client_experiences.map((exp) => {
       // Backward-compat: older databases still store the middle onboarding node as "day14".
       // Normalize it to "day10" in app state so rendering and deadline logic stay consistent.
@@ -41,7 +47,40 @@ export async function fetchClients(): Promise<ClientWithExperiences[]> {
     return []
   }
 
-  return ((data as ClientWithExperiences[]) || []).map(normalizeClient)
+  const clients = ((data as ClientWithExperiences[]) || []).map((client) => ({
+    ...client,
+    client_people_links: [],
+  }))
+
+  if (clients.length === 0) return clients.map(normalizeClient)
+
+  const clientIds = clients.map((client) => client.id)
+  const { data: peopleLinks, error: peopleLinksError } = await supabase
+    .from('client_people_links')
+    .select('*')
+    .in('client_id', clientIds)
+
+  // Backward-compat: if table not migrated yet, keep app usable with empty links.
+  if (peopleLinksError) {
+    if (!String(peopleLinksError.message || '').toLowerCase().includes('client_people_links')) {
+      console.error('Error fetching client person links:', peopleLinksError)
+    }
+    return clients.map(normalizeClient)
+  }
+
+  const linksByClientId = new Map<string, ClientPersonLink[]>()
+  for (const row of (peopleLinks as ClientPersonLink[] | null) ?? []) {
+    const existing = linksByClientId.get(row.client_id) ?? []
+    existing.push(row)
+    linksByClientId.set(row.client_id, existing)
+  }
+
+  return clients.map((client) =>
+    normalizeClient({
+      ...client,
+      client_people_links: linksByClientId.get(client.id) ?? [],
+    })
+  )
 }
 
 export async function createClientWithExperiences(
@@ -127,6 +166,7 @@ export async function createClientWithExperiences(
   return normalizeClient({
     ...client,
     client_experiences: allExps,
+    client_people_links: [],
   } as ClientWithExperiences)
 }
 
@@ -265,4 +305,187 @@ export async function deleteClient(id: string): Promise<boolean> {
     return false
   }
   return true
+}
+
+export async function createClientPersonLink(
+  clientId: string,
+  payload: { display_name: string; person_id: string; sort_order?: number }
+): Promise<ClientPersonLink | null> {
+  const displayName = payload.display_name.trim()
+  const personId = payload.person_id.trim()
+  const sortOrder = payload.sort_order ?? 0
+
+  if (!displayName || !personId) return null
+
+  const { data, error } = await supabase
+    .from('client_people_links')
+    .insert({
+      client_id: clientId,
+      display_name: displayName,
+      person_id: personId,
+      sort_order: sortOrder,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('Error creating client person link:', error)
+    return null
+  }
+
+  return data as ClientPersonLink
+}
+
+export async function updateClientPersonLink(
+  linkId: string,
+  updates: { display_name?: string; person_id?: string; sort_order?: number }
+): Promise<boolean> {
+  const normalized: { display_name?: string; person_id?: string; sort_order?: number } = {}
+  if (typeof updates.display_name === 'string') normalized.display_name = updates.display_name.trim()
+  if (typeof updates.person_id === 'string') normalized.person_id = updates.person_id.trim()
+  if (typeof updates.sort_order === 'number') normalized.sort_order = updates.sort_order
+
+  if (normalized.display_name != null && normalized.display_name.length === 0) return false
+  if (normalized.person_id != null && normalized.person_id.length === 0) return false
+
+  const { error } = await supabase
+    .from('client_people_links')
+    .update(normalized)
+    .eq('id', linkId)
+
+  if (error) {
+    console.error('Error updating client person link:', error)
+    return false
+  }
+
+  return true
+}
+
+export async function deleteClientPersonLink(linkId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('client_people_links')
+    .delete()
+    .eq('id', linkId)
+
+  if (error) {
+    console.error('Error deleting client person link:', error)
+    return false
+  }
+
+  return true
+}
+
+export interface PersonLinkImportEntry {
+  display_name: string
+  person_id: string
+}
+
+export interface UpsertClientPersonLinksByNameResult {
+  matchedClient: boolean
+  failed: boolean
+  inserted: number
+  updated: number
+  unchanged: number
+  errorMessage?: string
+}
+
+export async function upsertClientPersonLinksByName(
+  clientName: string,
+  entries: PersonLinkImportEntry[]
+): Promise<UpsertClientPersonLinksByNameResult> {
+  const normalizedName = clientName.trim()
+  if (!normalizedName) {
+    return { matchedClient: false, failed: false, inserted: 0, updated: 0, unchanged: 0 }
+  }
+
+  const { data: clients, error: clientError } = await supabase
+    .from('clients')
+    .select('id')
+    .eq('name', normalizedName)
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (clientError) {
+    console.error('Error finding client for person-link upsert:', clientError)
+    return {
+      matchedClient: false,
+      failed: true,
+      inserted: 0,
+      updated: 0,
+      unchanged: 0,
+      errorMessage: String(clientError.message || 'Could not find client'),
+    }
+  }
+
+  const clientId = clients?.[0]?.id as string | undefined
+  if (!clientId) {
+    return { matchedClient: false, failed: false, inserted: 0, updated: 0, unchanged: 0 }
+  }
+
+  const normalizedEntries = entries
+    .map((entry, index) => ({
+      client_id: clientId,
+      display_name: entry.display_name.trim(),
+      person_id: entry.person_id.trim(),
+      sort_order: index,
+    }))
+    .filter((entry) => entry.display_name.length > 0 && entry.person_id.length > 0)
+
+  if (normalizedEntries.length === 0) {
+    return { matchedClient: true, failed: false, inserted: 0, updated: 0, unchanged: 0 }
+  }
+
+  const dedupedByDisplayName = new Map<string, typeof normalizedEntries[number]>()
+  for (const entry of normalizedEntries) dedupedByDisplayName.set(entry.display_name, entry)
+  const upsertRows = [...dedupedByDisplayName.values()]
+
+  const { data: existing, error: existingError } = await supabase
+    .from('client_people_links')
+    .select('id, display_name, person_id')
+    .eq('client_id', clientId)
+
+  let inserted = upsertRows.length
+  let updated = 0
+  let unchanged = 0
+
+  if (existingError) {
+    console.error('Error loading existing person links:', existingError)
+  } else {
+    const byDisplayName = new Map<string, { person_id: string }>()
+    for (const row of (existing as Pick<ClientPersonLink, 'display_name' | 'person_id'>[] | null) ?? []) {
+      byDisplayName.set(row.display_name, { person_id: row.person_id })
+    }
+
+    inserted = 0
+    updated = 0
+    unchanged = 0
+    for (const row of upsertRows) {
+      const current = byDisplayName.get(row.display_name)
+      if (!current) {
+        inserted++
+      } else if (current.person_id === row.person_id) {
+        unchanged++
+      } else {
+        updated++
+      }
+    }
+  }
+
+  const { error: upsertError } = await supabase
+    .from('client_people_links')
+    .upsert(upsertRows, { onConflict: 'client_id,display_name' })
+
+  if (upsertError) {
+    console.error('Error upserting person links:', upsertError)
+    return {
+      matchedClient: true,
+      failed: true,
+      inserted: 0,
+      updated: 0,
+      unchanged: 0,
+      errorMessage: String(upsertError.message || 'Could not save person links'),
+    }
+  }
+
+  return { matchedClient: true, failed: false, inserted, updated, unchanged }
 }

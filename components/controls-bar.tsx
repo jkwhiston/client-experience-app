@@ -36,6 +36,7 @@ interface ControlsBarProps {
   activeTab: ActiveTab
   onAddClient: (client: ClientWithExperiences) => void
   onOpenCalendar?: () => void
+  onImportComplete?: () => void
 }
 
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
@@ -71,6 +72,7 @@ export function ControlsBar({
   activeTab,
   onAddClient,
   onOpenCalendar,
+  onImportComplete,
 }: ControlsBarProps) {
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
@@ -154,7 +156,7 @@ export function ControlsBar({
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
                       <Upload className="h-4 w-4 mr-2" />
-                      Import JSON
+                      Import JSON (Clients/Links)
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -174,6 +176,7 @@ export function ControlsBar({
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
         onAddClient={onAddClient}
+        onImportComplete={onImportComplete}
       />
     </div>
   )

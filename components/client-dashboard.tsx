@@ -423,6 +423,7 @@ export function ClientDashboard() {
           activeTab={activeTab}
           onAddClient={addClientLocal}
           onOpenCalendar={() => setCalendarOpen(true)}
+          onImportComplete={loadClients}
         />
 
         <ClientList

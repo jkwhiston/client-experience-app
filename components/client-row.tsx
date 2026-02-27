@@ -41,7 +41,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { MoreHorizontal, Pause, Play, Archive, ArchiveRestore, Trash2, History, X, Check, BellRing, BellOff } from 'lucide-react'
+import { MoreHorizontal, Pause, Play, Archive, ArchiveRestore, Trash2, History, X, Check, BellRing, BellOff, ExternalLink, Users } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -51,6 +51,7 @@ import {
 } from '@/components/ui/context-menu'
 import { TimelineNode } from './timeline-node'
 import { MonthlyHistoryModal } from './monthly-history-modal'
+import { ManagePersonLinksDialog } from './manage-person-links-dialog'
 
 interface ClientRowProps {
   index: number
@@ -82,6 +83,8 @@ export function ClientRow({
   const [intakeDateValue, setIntakeDateValue] = useState(client.initial_intake_date ?? '')
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [manageLinksOpen, setManageLinksOpen] = useState(false)
+  const [contextMenuOpenedAt, setContextMenuOpenedAt] = useState(0)
   const nameRef = useRef<HTMLInputElement>(null)
   const nameTextRef = useRef<HTMLSpanElement>(null)
   const dateRef = useRef<HTMLInputElement>(null)
@@ -205,6 +208,13 @@ export function ClientRow({
     await updateClient(client.id, { flag_color: color })
   }
 
+  function openPersonWorkspace(personId: string) {
+    // Guard against the open gesture itself selecting the first item on some systems.
+    if (Date.now() - contextMenuOpenedAt < 250) return
+    const url = `https://cstreet-brain.vercel.app/?personId=${encodeURIComponent(personId)}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
   const flagRgb = FLAG_COLORS.find((f) => f.key === client.flag_color)?.rgb ?? null
   const flagStyle = flagRgb
     ? { backgroundColor: `rgba(${flagRgb},0.13)` }
@@ -295,7 +305,11 @@ export function ClientRow({
     : EXPERIENCE_TYPES.map((t) => client.client_experiences.find((e) => e.experience_type === t)).filter(Boolean) as ClientExperience[]
 
   return (
-    <ContextMenu>
+    <ContextMenu
+      onOpenChange={(open) => {
+        if (open) setContextMenuOpenedAt(Date.now())
+      }}
+    >
       <ContextMenuTrigger asChild>
     <div
       className={`flex items-stretch rounded-lg border border-border overflow-hidden ${
@@ -451,6 +465,10 @@ export function ClientRow({
                   <Archive className="h-3.5 w-3.5 mr-2" />
                   Archive
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setManageLinksOpen(true)}>
+                  <Users className="h-3.5 w-3.5 mr-2" />
+                  Person ID Links
+                </DropdownMenuItem>
                 {!client.initial_intake_date && (
                   <DropdownMenuItem onClick={handleIntakePulseToggleRow}>
                     {client.initial_intake_pulse_enabled ? (
@@ -584,9 +602,29 @@ export function ClientRow({
           updateClientLocal={updateClientLocal}
         />
       )}
+      <ManagePersonLinksDialog
+        open={manageLinksOpen}
+        onOpenChange={setManageLinksOpen}
+        client={client}
+        updateClientLocal={updateClientLocal}
+      />
     </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-0">
+        <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Open in C-Street Brain</div>
+        {client.client_people_links.length > 0 ? (
+          <>
+            {client.client_people_links.map((link) => (
+              <ContextMenuItem key={link.id} onClick={() => openPersonWorkspace(link.person_id)}>
+                <ExternalLink className="h-3.5 w-3.5 mr-2" />
+                {link.display_name}
+              </ContextMenuItem>
+            ))}
+          </>
+        ) : (
+          <ContextMenuItem disabled>No person links configured</ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
         <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Flag Color</div>
         <div className="flex items-center gap-1.5 px-2 py-1.5">
           {FLAG_COLORS.map((fc) => (

@@ -50,8 +50,19 @@ export interface ClientExperience {
   updated_at: string
 }
 
+export interface ClientPersonLink {
+  id: string
+  client_id: string
+  display_name: string
+  person_id: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
 export interface ClientWithExperiences extends Client {
   client_experiences: ClientExperience[]
+  client_people_links: ClientPersonLink[]
 }
 
 export const EXPERIENCE_LABELS: Record<ExperienceType, string> = {

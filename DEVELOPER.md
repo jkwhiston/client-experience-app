@@ -52,6 +52,7 @@ The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previou
 │   ├── client-row.tsx             # Single client row: info + timeline stepper + delete
 │   ├── controls-bar.tsx           # Search, filter dropdown, sort dropdown, Calendar View, Actions dropdown
 │   ├── import-clients-dialog.tsx  # JSON import dialog with schema copy + validation
+│   ├── manage-person-links-dialog.tsx # Row-level dialog to edit external person links
 │   ├── dashboard-header.tsx       # Header: title, Onboarding/Lifecycle tabs, dropdown menu (Archived, theme toggle, sign out)
 │   ├── experience-detail-modal.tsx # Detail modal: countdown hero, editable sign-on date, status dropdown
 │   ├── focus-tabs.tsx             # (unused) Focus tabs — removed from UI, file retained
@@ -81,7 +82,8 @@ The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previou
 │   └── migrations/
 │       ├── 20260219_add_monthly_experiences.sql  # Two-step migration for monthly experiences
 │       ├── 20260219_add_flag_color.sql           # Add flag_color column to clients
-│       └── 20260226_add_initial_intake_and_day10.sql # Add intake columns + day14 -> day10 migration
+│       ├── 20260226_add_initial_intake_and_day10.sql # Add intake columns + day14 -> day10 migration
+│       └── 20260227_add_client_people_links.sql # Add per-client person links for external workspace routing
 ├── middleware.ts                  # Next.js middleware (Supabase session)
 ├── BUILD_SPEC.md                  # Original build specification
 ├── REDISGN_SPEC.md                # Timeline redesign specification
@@ -130,6 +132,19 @@ Each client has **20 experience rows** total: 3 initial (hour24, day10, day30) +
 
 **Unique constraint**: The `client_experiences` table has a unique index on `(client_id, experience_type, COALESCE(month_number, 0))`. This allows one row per initial experience type (where `month_number` is NULL → coalesced to 0) and one row per monthly month_number per client.
 
+**`client_people_links`**
+| Column       | Type         | Notes                                                 |
+|--------------|--------------|-------------------------------------------------------|
+| id           | uuid (PK)    |                                                       |
+| client_id    | uuid (FK -> clients) | Cascades on delete                           |
+| display_name | text         | Name shown in right-click menu                        |
+| person_id    | text         | External workspace identifier appended to URL         |
+| sort_order   | integer      | Controls ordering in menus/dialog                     |
+| created_at   | timestamptz  |                                                       |
+| updated_at   | timestamptz  |                                                       |
+
+**Unique constraint**: `client_people_links` enforces one row per `(client_id, display_name)` to support import upsert-by-name behavior.
+
 ### TypeScript Types (`lib/types.ts`)
 
 ```typescript
@@ -153,8 +168,17 @@ interface ClientExperience {
   month_number: number | null  // 2–18 for monthly, null for initial
 }
 
+interface ClientPersonLink {
+  id: string
+  client_id: string
+  display_name: string
+  person_id: string
+  sort_order: number
+}
+
 interface ClientWithExperiences extends Client {
   client_experiences: ClientExperience[]
+  client_people_links: ClientPersonLink[]
 }
 
 // Constants
@@ -751,6 +775,24 @@ Active pending nodes that are within 24 hours of their deadline now show a **yel
 9. **Migration execution note** — In Supabase SQL editor, the `day10` migration must be run in two executions due to PostgreSQL enum commit requirements:
    - Step 1: add intake columns + add enum value `day10`
    - Step 2: update `client_experiences` rows from `day14` to `day10`
+
+### Person Links + Bulk Import (Feb 27, 2026)
+
+1. **New table for external links** (`supabase/migrations/20260227_add_client_people_links.sql`) — Added `client_people_links` with `client_id`, `display_name`, `person_id`, `sort_order`, timestamps, `(client_id, display_name)` uniqueness, and `updated_at` trigger.
+
+2. **Client fetch now includes person links** (`lib/types.ts`, `lib/queries.ts`) — `ClientWithExperiences` now includes `client_people_links`. `fetchClients()` loads person links via a dedicated `client_people_links` query and merges by `client_id` (instead of relying on embedded relation selects), then normalizes sort order by `sort_order`.
+
+3. **Row right-click links** (`components/client-row.tsx`) — Existing row context menu now shows an **Open in C-Street Brain** section above **Flag Color**. Each person entry opens `https://cstreet-brain.vercel.app/?personId=<person_id>` in a new tab/window. This works from right-click anywhere on the row because it reuses the existing row-wide `ContextMenuTrigger`.
+
+4. **Hidden row-level editor** (`components/client-row.tsx`, `components/manage-person-links-dialog.tsx`) — Added `Person ID Links` to the row kebab menu (`...`). Dialog title is `Person ID Links`; it supports add/edit/delete/reorder and saves via optimistic local update plus Supabase CRUD helpers (`createClientPersonLink`, `updateClientPersonLink`, `deleteClientPersonLink`).
+
+5. **Import JSON supports person-link mode** (`components/import-clients-dialog.tsx`, `lib/queries.ts`, `components/controls-bar.tsx`, `components/client-dashboard.tsx`) — Existing Import modal now has two modes: `Clients` and `Person Links`. Person-link imports use payload shape `{ client_name, people[] }` and apply Option A merge semantics: match exact `client_name`, upsert by `display_name`, update `person_id` when changed, preserve unspecified existing people.
+
+6. **Import modal overflow handling** (`components/import-clients-dialog.tsx`) — Dialog now uses a fixed max height (`max-h-[85vh]`) with a scrollable body region and sticky footer actions so large pasted JSON arrays remain usable.
+
+7. **Import reliability + diagnostics** (`lib/queries.ts`, `components/import-clients-dialog.tsx`) — Person-link imports now write with bulk `upsert(..., { onConflict: 'client_id,display_name' })` and report failed-client counts in the modal summary. If `client_people_links` migration is missing, Supabase returns `PGRST205` (`table not in schema cache`), and imports cannot proceed until migration SQL is applied.
+
+8. **Context-menu accidental-open guard** (`components/client-row.tsx`) — Added a short timing guard after context-menu open to prevent immediate accidental navigation caused by the same right-click gesture selecting the first menu item on some systems.
 
 ---
 
