@@ -166,3 +166,44 @@
   background-color: rgba(0,0,0,0.5);
   box-shadow: inset 0 0 30px 14px rgba(0,0,0,0.85);
 }
+
+.subtle-scrollbar {
+  -ms-overflow-style: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.42) transparent;
+}
+
+.subtle-scrollbar::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+  background: transparent;
+}
+
+.subtle-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.subtle-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: rgba(148, 163, 184, 0.42);
+}
+
+.subtle-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.58);
+}
+
+[contenteditable] [data-task-check] {
+  margin: 4px 0;
+}
+
+[contenteditable] [data-task-check="checked"] {
+  text-decoration: line-through;
+  opacity: 0.4;
+}
+
+[contenteditable] [data-task-check] [data-check-toggle] {
+  display: inline-block;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+}

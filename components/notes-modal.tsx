@@ -38,6 +38,7 @@ export function NotesModal({
 }: NotesModalProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [content, setContent] = useState(experience.notes || '')
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(experience.notes_updated_at || null)
   const [saveStatus, setSaveStatus] = useState<string>('')
   const [editingCompletedAt, setEditingCompletedAt] = useState(false)
   const [completedAtValue, setCompletedAtValue] = useState('')
@@ -57,6 +58,7 @@ export function NotesModal({
   useEffect(() => {
     if (open) {
       setContent(experience.notes || '')
+      setLastSavedAt(experience.notes_updated_at || null)
       setTodos(experience.todos || [])
       setIsEditing(false)
       setSaveStatus('')
@@ -90,14 +92,20 @@ export function NotesModal({
   // --- Notes save ---
   const saveNotes = useCallback(
     async (text: string) => {
+      const savedAt = new Date().toISOString()
       updateClientLocal(client.id, (c) => ({
         ...c,
         client_experiences: c.client_experiences.map((e) =>
-          e.id === experience.id ? { ...e, notes: text } : e
+          e.id === experience.id ? { ...e, notes: text, notes_updated_at: savedAt } : e
         ),
       }))
-      await updateExperience(experience.id, { notes: text })
-      setSaveStatus('Saved \u2022 just now')
+      const ok = await updateExperience(experience.id, { notes: text, notes_updated_at: savedAt })
+      if (ok) {
+        setLastSavedAt(savedAt)
+        setSaveStatus('Saved \u2022 just now')
+      } else {
+        setSaveStatus('Could not save notes')
+      }
     },
     [client.id, experience.id, updateClientLocal]
   )
@@ -234,6 +242,20 @@ export function NotesModal({
 
   function formatCompletedAt(dateStr: string): string {
     const d = new Date(dateStr)
+    return d.toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+  }
+
+  function formatLastSaved(dateStr: string | null): string {
+    if (!dateStr) return 'Not yet'
+    const d = new Date(dateStr)
+    if (Number.isNaN(d.getTime())) return 'Not yet'
     return d.toLocaleString('en-US', {
       year: 'numeric',
       month: '2-digit',
@@ -479,9 +501,12 @@ export function NotesModal({
 
         {/* Footer */}
         <div className="px-5 py-2 border-t border-border">
-          <p className="text-xs text-muted-foreground">
-            {saveStatus || '\u00A0'}
-          </p>
+          <div className="space-y-0.5">
+            <p className="text-xs text-muted-foreground">{saveStatus || '\u00A0'}</p>
+            <p className="text-xs text-muted-foreground">
+              Last saved: {formatLastSaved(lastSavedAt)}
+            </p>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

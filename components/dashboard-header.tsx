@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Archive, LogOut, Moon, MoreHorizontal, Sun } from 'lucide-react'
+import { Archive, ListTodo, LogOut, Moon, MoreHorizontal, Sun } from 'lucide-react'
 
 interface DashboardHeaderProps {
   activeTab: ActiveTab
@@ -65,6 +65,10 @@ export function DashboardHeader({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => router.push('/c-street-dump')}>
+              <ListTodo className="h-4 w-4 mr-2" />
+              C-Street Dump
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => onActiveTabChange('archived')}
               className={activeTab === 'archived' ? 'bg-accent' : ''}

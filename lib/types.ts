@@ -44,6 +44,7 @@ export interface ClientExperience {
   completed_at: string | null
   custom_due_at: string | null
   notes: string
+  notes_updated_at: string | null
   todos: TodoItem[]
   month_number: number | null
   created_at: string

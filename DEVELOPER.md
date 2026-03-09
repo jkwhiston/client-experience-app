@@ -6,6 +6,8 @@
 
 A Next.js web app for tracking time-based client milestones. The **Onboarding** tab tracks three initial onboarding milestones: **24-Hour**, **10-Day**, and **30-Day** experiences. The **Lifecycle** tab tracks recurring **monthly** post-30-day experiences (months 2–18, i.e. 1.5 years from sign-on). Clients now have both a **signed-on date** and an optional **initial intake date**. By default, 24-Hour and 10-Day anchor to initial intake when present (otherwise sign-on), while other nodes stay sign-on anchored. The UI shows a horizontal timeline stepper per client with live countdowns, status indicators, and interactive modals for managing status and notes.
 
+This repo also now contains **`C-Street Dump`**, a deliberately isolated mini-app for rapid task dumping and a lightweight `Thoughts` board. It shares the app password gate and the root layout/theme providers, but it should otherwise be treated as a separate feature boundary.
+
 ### Page vs. Node Naming Convention
 
 The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previously named "Active", "Ongoing", and "Archived"). The term **"Active"** is still used to describe experience *nodes* — i.e., the current pending/in-progress experience node on a client's timeline is called the "active" node, regardless of which page it appears on. So a client on the Lifecycle page still has an "active" monthly experience node. In code:
@@ -41,8 +43,15 @@ The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previou
 │   │   └── migrate/route.ts       # GET migration info / POST apply migration via pg
 │   ├── globals.css                # Tailwind + CSS theme variables + pulse animations
 │   ├── layout.tsx                 # Root layout (ThemeProvider, fonts)
+│   ├── c-street-dump/
+│   │   ├── layout.tsx             # Route-level metadata shell for the task dump mini-app
+│   │   ├── page.tsx               # C-Street Dump entry page
+│   │   ├── loading.tsx            # Route loading UI
+│   │   ├── error.tsx              # Route error state
+│   │   └── icon.svg               # Route-specific task/checkmark favicon
 │   ├── login/page.tsx             # Password auth page
 │   └── page.tsx                   # Home — renders ClientDashboard
+│   └── api/task-dump/route.ts     # Isolated task dump API backed by task_dump_* public tables
 ├── components/
 │   ├── add-client-dialog.tsx      # Dialog to add a new client
 │   ├── calendar-day-cell.tsx      # Calendar day cell with status-colored deadline chips
@@ -66,10 +75,19 @@ The three main tabs are **Onboarding**, **Lifecycle**, and **Archived** (previou
 │   └── ui/                        # shadcn/ui primitives (alert-dialog, badge, button, calendar,
 │                                  #   card, context-menu, dialog, dropdown-menu, input, label,
 │                                  #   popover, select, tabs, textarea, tooltip)
+├── features/
+│   └── task-dump/
+│       ├── README.md              # Task dump scope and separation rules
+│       ├── ARCHITECTURE.md        # Task dump architecture and extraction notes
+│       ├── markdown-composer.tsx  # Markdown-first editor with hidden formatting menu
+│       ├── markdown-utils.ts      # Shortcut + markdown manipulation helpers
+│       └── task-dump-app.tsx      # Main C-Street Dump UI
 ├── lib/
 │   ├── deadlines.ts               # All deadline math, formatting, status derivation
 │   ├── client-fonts.ts            # Per-client Google Font assignment (hash-based)
 │   ├── queries.ts                 # Supabase CRUD + migration check + monthly backfill
+│   ├── task-dump-queries.ts       # Client-side task dump fetch/mutation helpers
+│   ├── task-dump-types.ts         # Task dump types, constants, links, attachment helpers
 │   ├── types.ts                   # TypeScript types & constants
 │   ├── utils.ts                   # cn() utility (clsx + tailwind-merge)
 │   └── supabase/
@@ -203,6 +221,25 @@ The DB stores simple status values. The UI derives display status:
 | yes       | <= dueAt    | —               | `done`         |
 | yes       | > dueAt     | —               | `done_late`    |
 | no        | null        | —               | `failed`       |
+
+---
+
+## C-Street Dump Boundary
+
+`C-Street Dump` is intentionally **not** part of the Client Experience Tracker domain model.
+
+Future agents should follow these rules:
+
+- Keep task-dump UI under `features/task-dump/*`.
+- Keep task-dump data code in `lib/task-dump-*` and `app/api/task-dump/route.ts`.
+- Keep database objects in the `task_dump_*` public table namespace and the `c-street-dump` storage bucket.
+- Do **not** extend `lib/queries.ts`, `lib/types.ts`, or dashboard components with task-dump-specific logic unless there is no reasonable alternative.
+- The main shared integration points should remain minimal:
+  - app password middleware
+  - root layout/theme/toaster providers
+  - dashboard kebab-menu navigation entry
+
+If this feature is ever deleted or extracted into another app, the goal is that almost all task-dump files can be removed or moved without changing tracker behavior.
 
 ---
 

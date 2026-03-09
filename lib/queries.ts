@@ -36,6 +36,11 @@ function hasMissingDay10EnumError(error: unknown): boolean {
   return message.includes('day10') && message.includes('experience_type')
 }
 
+function hasMissingNotesUpdatedAtColumnError(error: unknown): boolean {
+  const message = String((error as { message?: string } | null)?.message ?? '').toLowerCase()
+  return message.includes('notes_updated_at') && message.includes('column')
+}
+
 export async function fetchClients(): Promise<ClientWithExperiences[]> {
   const { data, error } = await supabase
     .from('clients')
@@ -272,10 +277,30 @@ export async function updateExperience(
   id: string,
   updates: Record<string, unknown>
 ): Promise<boolean> {
-  const { error } = await supabase
+  let { error } = await supabase
     .from('client_experiences')
     .update(updates)
     .eq('id', id)
+
+  // Backward-compat for DBs where notes_updated_at hasn't been migrated yet.
+  if (
+    error &&
+    hasMissingNotesUpdatedAtColumnError(error) &&
+    Object.prototype.hasOwnProperty.call(updates, 'notes_updated_at')
+  ) {
+    const fallbackUpdates = { ...updates }
+    delete fallbackUpdates.notes_updated_at
+
+    if (Object.keys(fallbackUpdates).length === 0) {
+      return false
+    }
+
+    const fallback = await supabase
+      .from('client_experiences')
+      .update(fallbackUpdates)
+      .eq('id', id)
+    error = fallback.error
+  }
 
   if (error) {
     console.error('Error updating experience:', error)
