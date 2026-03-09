@@ -188,7 +188,7 @@ export function MarkdownComposer({
       setRowCheckedState(row, !wasChecked)
 
       requestAnimationFrame(() => {
-        const html = editor.innerHTML ?? ''
+        const html = editor?.innerHTML ?? ''
         const normalized = isContentEmpty(html) ? '' : html
         setIsEmpty(isContentEmpty(normalized))
         if (normalized !== valueRef.current) {
