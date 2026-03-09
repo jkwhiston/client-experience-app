@@ -1409,6 +1409,7 @@ function TaskDialog({
   const headerBorderGradient = `linear-gradient(to right, rgb(${c} / 0.22) 0%, rgb(${c} / 0.08) 50%, transparent 85%)`
 
   function commitTitleEdit() {
+    if (!task) return
     const normalizedTitle = titleDraft.replace(/\s+/g, ' ').trim()
     const nextTitle = normalizedTitle ? normalizedTitle : null
     onTaskChange(
