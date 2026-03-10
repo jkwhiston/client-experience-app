@@ -5,6 +5,9 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
   Bold,
   CalendarDays,
   Check,
@@ -45,6 +48,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
 import {
@@ -66,6 +75,7 @@ import {
   deleteTaskDumpThought,
   fetchTaskDumpSnapshot,
   getTaskDumpAttachmentUrl,
+  reorderTaskDumpTasks,
   restoreTaskDumpTask,
   restoreTaskDumpThought,
   updateTaskDumpBlock,
@@ -195,6 +205,17 @@ function groupTasksByStatus(tasks: TaskDumpTask[]) {
       done: [],
     }
   )
+}
+
+function getAdjacentTaskStatus(
+  status: TaskDumpStatus,
+  direction: 'backward' | 'forward'
+): TaskDumpStatus | null {
+  const currentIndex = TASK_DUMP_STATUSES.indexOf(status)
+  if (currentIndex < 0) return null
+  const nextIndex = direction === 'forward' ? currentIndex + 1 : currentIndex - 1
+  if (nextIndex < 0 || nextIndex >= TASK_DUMP_STATUSES.length) return null
+  return TASK_DUMP_STATUSES[nextIndex]
 }
 
 function getPriorityClass(flag: TaskDumpPriorityFlag): string {
@@ -685,6 +706,67 @@ export function TaskDumpApp() {
     }
   }, [])
 
+  const handleTaskStep = useCallback((taskId: string, direction: 'backward' | 'forward') => {
+    const task = snapshot.tasks.find((candidate) => candidate.id === taskId)
+    if (!task) return
+    const nextStatus = getAdjacentTaskStatus(task.status, direction)
+    if (!nextStatus) return
+
+    updateTaskLocal(taskId, (current) => ({ ...current, status: nextStatus }))
+    queueTaskSave(taskId, { status: nextStatus })
+
+    toast.success(`Moved to ${TASK_DUMP_STATUS_LABELS[nextStatus]}.`, {
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          updateTaskLocal(taskId, (current) => ({ ...current, status: task.status }))
+          queueTaskSave(taskId, { status: task.status })
+        },
+      },
+    })
+  }, [snapshot.tasks])
+
+  const handleTaskReorder = useCallback(async (taskId: string, direction: 'up' | 'down') => {
+    const task = snapshot.tasks.find((candidate) => candidate.id === taskId)
+    if (!task) return
+
+    const columnTasks = snapshot.tasks
+      .filter((candidate) => candidate.status === task.status)
+      .sort((a, b) => a.column_order - b.column_order)
+    const currentIndex = columnTasks.findIndex((candidate) => candidate.id === taskId)
+    if (currentIndex < 0) return
+
+    const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+    if (nextIndex < 0 || nextIndex >= columnTasks.length) return
+
+    const reordered = [...columnTasks]
+    ;[reordered[currentIndex], reordered[nextIndex]] = [reordered[nextIndex], reordered[currentIndex]]
+
+    const updates = reordered.map((candidate, index) => ({
+      id: candidate.id,
+      status: candidate.status,
+      columnOrder: index,
+    }))
+    const orderById = new Map<string, number>(updates.map((update) => [update.id, update.columnOrder]))
+
+    setSnapshot((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((candidate) =>
+        candidate.status === task.status
+          ? { ...candidate, column_order: orderById.get(candidate.id) ?? candidate.column_order }
+          : candidate
+      ),
+    }))
+
+    try {
+      const nextSnapshot = await reorderTaskDumpTasks(updates)
+      setSnapshot(nextSnapshot)
+    } catch (reorderError) {
+      toast.error(reorderError instanceof Error ? reorderError.message : 'Could not move task.')
+      await load()
+    }
+  }, [snapshot.tasks])
+
   async function handleThoughtDelete(thoughtId: string) {
     const pendingTimer = thoughtTimersRef.current.get(thoughtId)
     if (pendingTimer) clearTimeout(pendingTimer)
@@ -933,6 +1015,8 @@ export function TaskDumpApp() {
                   status={status}
                   tasks={groupedTasks[status]}
                   onOpenTask={setSelectedTaskId}
+                  onStepTask={handleTaskStep}
+                  onReorderTask={handleTaskReorder}
                   onDeleteTask={handleTaskDelete}
                 />
               ))}
@@ -1062,11 +1146,15 @@ const TaskColumn = memo(function TaskColumn({
   status,
   tasks,
   onOpenTask,
+  onStepTask,
+  onReorderTask,
   onDeleteTask,
 }: {
   status: TaskDumpStatus
   tasks: TaskDumpTask[]
   onOpenTask: (taskId: string) => void
+  onStepTask: (taskId: string, direction: 'backward' | 'forward') => void
+  onReorderTask: (taskId: string, direction: 'up' | 'down') => void
   onDeleteTask: (taskId: string) => void
 }) {
   const statusStyles = TASK_DUMP_STATUS_STYLES[status]
@@ -1080,11 +1168,15 @@ const TaskColumn = memo(function TaskColumn({
       </div>
 
       <div className="min-h-[200px] space-y-1">
-        {tasks.map((task) => (
+        {tasks.map((task, index) => (
           <TaskCard
             key={task.id}
             task={task}
             onOpenTask={onOpenTask}
+            onStepTask={onStepTask}
+            onReorderTask={onReorderTask}
+            canMoveUp={index > 0}
+            canMoveDown={index < tasks.length - 1}
             onDeleteTask={onDeleteTask}
           />
         ))}
@@ -1101,47 +1193,114 @@ const TaskColumn = memo(function TaskColumn({
 const TaskCard = memo(function TaskCard({
   task,
   onOpenTask,
+  onStepTask,
+  onReorderTask,
+  canMoveUp,
+  canMoveDown,
   onDeleteTask,
 }: {
   task: TaskDumpTask
   onOpenTask: (taskId: string) => void
+  onStepTask: (taskId: string, direction: 'backward' | 'forward') => void
+  onReorderTask: (taskId: string, direction: 'up' | 'down') => void
+  canMoveUp: boolean
+  canMoveDown: boolean
   onDeleteTask: (taskId: string) => void
 }) {
   const statusStyles = TASK_DUMP_STATUS_STYLES[task.status]
+  const canMoveBackward = Boolean(getAdjacentTaskStatus(task.status, 'backward'))
+  const canMoveForward = Boolean(getAdjacentTaskStatus(task.status, 'forward'))
 
   return (
-    <div className="group py-4 pl-5 pr-2 transition-colors">
-      <div className="flex items-start gap-2">
-        <button type="button" onClick={() => onOpenTask(task.id)} className="min-w-0 flex-1 text-left">
-          {task.priority_flag !== 'none' && (
-            <span className={cn('text-[10px] uppercase tracking-[0.2em]', getPriorityClass(task.priority_flag))}>
-              {task.priority_flag}
-            </span>
-          )}
-          <h3 className="text-sm text-foreground">
-            {task.title || stripHtmlToText(task.body).slice(0, 60) || 'Untitled'}
-          </h3>
-          {task.body.trim() && (
-            <p className="mt-1.5 line-clamp-2 text-xs text-foreground/60">
-              {getTaskBodyPreview(task.body)}
-            </p>
-          )}
-          {task.due_at && (
-            <p className={cn('mt-2 text-[11px]', statusStyles.cardMetaClassName)}>
-              {formatTaskDumpDate(task.due_at)}
-            </p>
-          )}
-        </button>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="group py-4 pl-5 pr-2 transition-colors">
+          <div className="flex items-start gap-2">
+            <button type="button" onClick={() => onOpenTask(task.id)} className="min-w-0 flex-1 text-left">
+              {task.priority_flag !== 'none' && (
+                <span className={cn('text-[10px] uppercase tracking-[0.2em]', getPriorityClass(task.priority_flag))}>
+                  {task.priority_flag}
+                </span>
+              )}
+              <h3 className="text-sm text-foreground">
+                {task.title || stripHtmlToText(task.body).slice(0, 60) || 'Untitled'}
+              </h3>
+              {task.body.trim() && (
+                <p className="mt-1.5 line-clamp-2 text-xs text-foreground/60">
+                  {getTaskBodyPreview(task.body)}
+                </p>
+              )}
+              {task.due_at && (
+                <p className={cn('mt-2 text-[11px]', statusStyles.cardMetaClassName)}>
+                  {formatTaskDumpDate(task.due_at)}
+                </p>
+              )}
+            </button>
 
-        <button
-          type="button"
-          className="mt-1 shrink-0 text-foreground/0 transition-colors group-hover:text-foreground/55 hover:!text-foreground/85"
+            <div className="flex shrink-0 self-stretch flex-col items-end justify-end py-0.5">
+              <div className="flex items-center gap-0.5">
+                {canMoveBackward && (
+                  <button
+                    type="button"
+                    className="text-foreground/0 transition-colors group-hover:text-foreground/35 group-focus-within:text-foreground/35 hover:!text-foreground/75"
+                    aria-label="Move task backward"
+                    title="Move task backward"
+                    onClick={() => onStepTask(task.id, 'backward')}
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {canMoveForward && (
+                  <button
+                    type="button"
+                    className="text-foreground/0 transition-colors group-hover:text-foreground/35 group-focus-within:text-foreground/35 hover:!text-foreground/75"
+                    aria-label="Move task forward"
+                    title="Move task forward"
+                    onClick={() => onStepTask(task.id, 'forward')}
+                  >
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="min-w-[9rem]">
+        <div className="flex items-center gap-1 px-2 pb-1.5">
+          <ContextMenuItem asChild disabled={!canMoveUp} className="h-8 w-8 justify-center rounded-sm px-0">
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-sm text-foreground/65 transition-colors hover:bg-accent hover:text-foreground"
+              aria-label="Move task up"
+              title="Move up"
+              onClick={() => onReorderTask(task.id, 'up')}
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+          </ContextMenuItem>
+          <ContextMenuItem asChild disabled={!canMoveDown} className="h-8 w-8 justify-center rounded-sm px-0">
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-sm text-foreground/65 transition-colors hover:bg-accent hover:text-foreground"
+              aria-label="Move task down"
+              title="Move down"
+              onClick={() => onReorderTask(task.id, 'down')}
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </button>
+          </ContextMenuItem>
+        </div>
+        <div className="mx-1 my-1 h-px bg-border" />
+        <ContextMenuItem
+          className="text-red-500 focus:text-red-500"
           onClick={() => onDeleteTask(task.id)}
         >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete task
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 })
 
@@ -1416,7 +1575,8 @@ function TaskDialog({
                                 { content }
                               )
                             }}
-                            placeholder=""
+                            placeholder="Write a note..."
+                            placeholderClassName="text-foreground/45"
                             className="border-0 bg-transparent"
                             minHeightClassName="min-h-[120px]"
                             maxHeightClassName="max-h-[280px]"

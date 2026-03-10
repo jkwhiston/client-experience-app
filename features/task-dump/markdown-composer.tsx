@@ -23,6 +23,7 @@ interface MarkdownComposerProps {
   minHeightClassName?: string
   maxHeightClassName?: string
   maxHeightPx?: number
+  placeholderClassName?: string
   toolbarVariant?: 'hidden' | 'inline' | 'focus-inline'
   onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void
 }
@@ -54,9 +55,22 @@ const FORMAT_ITEMS: {
 
 marked.setOptions({ gfm: true, breaks: true })
 
+const URL_PATTERN = /https?:\/\/[^\s<]+/gi
+const TRAILING_URL_PUNCTUATION = /[),.!?:;]+$/
+
+function normalizePreviewAnchors(html: string): string {
+  return html.replace(/<a\b([^>]*)>/gi, (full, attrs: string) => {
+    const hasTarget = /\btarget\s*=/.test(attrs)
+    const hasRel = /\brel\s*=/.test(attrs)
+    const withTarget = hasTarget ? attrs : `${attrs} target="_blank"`
+    const withRel = hasRel ? withTarget : `${withTarget} rel="noopener noreferrer"`
+    return `<a${withRel}>`
+  })
+}
+
 function renderPreviewHtml(content: string): string {
   if (!content.trim()) return ''
-  return marked.parse(content) as string
+  return normalizePreviewAnchors(marked.parse(content) as string)
 }
 
 function isContentEmpty(html: string): boolean {
@@ -120,6 +134,93 @@ function migrateOldCheckboxes(container: HTMLElement): boolean {
   return true
 }
 
+function getUrlChunks(value: string): Array<{ type: 'text' | 'url'; value: string }> {
+  const chunks: Array<{ type: 'text' | 'url'; value: string }> = []
+  URL_PATTERN.lastIndex = 0
+  let cursor = 0
+  let match = URL_PATTERN.exec(value)
+
+  while (match) {
+    const matchValue = match[0]
+    const start = match.index
+    let end = start + matchValue.length
+    let normalizedUrl = matchValue
+
+    while (TRAILING_URL_PUNCTUATION.test(normalizedUrl)) {
+      normalizedUrl = normalizedUrl.replace(TRAILING_URL_PUNCTUATION, '')
+      end = start + normalizedUrl.length
+    }
+
+    if (start > cursor) {
+      chunks.push({ type: 'text', value: value.slice(cursor, start) })
+    }
+
+    if (normalizedUrl) {
+      chunks.push({ type: 'url', value: normalizedUrl })
+    } else {
+      chunks.push({ type: 'text', value: matchValue })
+      end = start + matchValue.length
+    }
+
+    if (end < start + matchValue.length) {
+      chunks.push({ type: 'text', value: value.slice(end, start + matchValue.length) })
+    }
+
+    cursor = start + matchValue.length
+    match = URL_PATTERN.exec(value)
+  }
+
+  if (cursor < value.length) {
+    chunks.push({ type: 'text', value: value.slice(cursor) })
+  }
+
+  return chunks
+}
+
+function linkifyUrlsInContainer(container: HTMLElement): boolean {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+  const textNodes: Text[] = []
+
+  while (walker.nextNode()) {
+    textNodes.push(walker.currentNode as Text)
+  }
+
+  let changed = false
+  for (const node of textNodes) {
+    const parentElement = node.parentElement
+    if (!parentElement) continue
+    if (parentElement.closest('a,code,pre,script,style,[data-check-toggle]')) continue
+
+    const text = node.nodeValue ?? ''
+    if (!URL_PATTERN.test(text)) continue
+    URL_PATTERN.lastIndex = 0
+
+    const chunks = getUrlChunks(text)
+    if (!chunks.some((chunk) => chunk.type === 'url')) continue
+
+    const fragment = document.createDocumentFragment()
+    for (const chunk of chunks) {
+      if (chunk.type === 'text') {
+        fragment.appendChild(document.createTextNode(chunk.value))
+        continue
+      }
+
+      const anchor = document.createElement('a')
+      anchor.href = chunk.value
+      anchor.target = '_blank'
+      anchor.rel = 'noopener noreferrer'
+      anchor.textContent = chunk.value
+      anchor.className = 'text-primary underline'
+      fragment.appendChild(anchor)
+    }
+
+    node.parentNode?.replaceChild(fragment, node)
+    changed = true
+  }
+
+  return changed
+}
+
 export function MarkdownComposer({
   value,
   onChange,
@@ -129,6 +230,7 @@ export function MarkdownComposer({
   minHeightClassName = 'min-h-[180px]',
   maxHeightClassName,
   maxHeightPx,
+  placeholderClassName = 'text-foreground/60',
   toolbarVariant = 'hidden',
   onKeyDown: onKeyDownProp,
 }: MarkdownComposerProps) {
@@ -149,6 +251,10 @@ export function MarkdownComposer({
     if (editorMode === 'edit' && !isFocusedRef.current && editorRef.current) {
       if (editorRef.current.innerHTML !== value) {
         editorRef.current.innerHTML = value
+        if (linkifyUrlsInContainer(editorRef.current)) {
+          const linked = editorRef.current.innerHTML
+          onChangeRef.current(linked)
+        }
         if (migrateOldCheckboxes(editorRef.current)) {
           const migrated = editorRef.current.innerHTML
           onChangeRef.current(migrated)
@@ -175,6 +281,14 @@ export function MarkdownComposer({
     const editor = editorRef.current
     if (!editor) return
 
+    function handleClick(event: MouseEvent) {
+      const target = event.target as HTMLElement
+      const anchor = target.closest('a[href]') as HTMLAnchorElement | null
+      if (!anchor) return
+      event.preventDefault()
+      window.open(anchor.href, '_blank', 'noopener,noreferrer')
+    }
+
     function handleMousedown(event: MouseEvent) {
       const target = event.target as HTMLElement
       if (!target.hasAttribute('data-check-toggle')) return
@@ -197,8 +311,10 @@ export function MarkdownComposer({
       })
     }
 
+    editor.addEventListener('click', handleClick)
     editor.addEventListener('mousedown', handleMousedown)
     return () => {
+      editor.removeEventListener('click', handleClick)
       editor.removeEventListener('mousedown', handleMousedown)
     }
   }, [])
@@ -278,6 +394,9 @@ export function MarkdownComposer({
               onBlur={() => {
                 isFocusedRef.current = false
                 setIsFocused(false)
+                if (editorRef.current && linkifyUrlsInContainer(editorRef.current)) {
+                  setIsEmpty(isContentEmpty(editorRef.current.innerHTML))
+                }
                 flushToParent()
               }}
               onInput={flushToParent}
@@ -319,7 +438,7 @@ export function MarkdownComposer({
               )}
             />
             {isEmpty && (
-              <div className="pointer-events-none absolute inset-0 px-4 py-3 text-sm leading-relaxed text-foreground/60">
+              <div className={cn('pointer-events-none absolute inset-0 px-4 py-3 text-sm leading-relaxed', placeholderClassName)}>
                 {placeholder}
               </div>
             )}
