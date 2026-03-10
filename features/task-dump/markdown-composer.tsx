@@ -557,7 +557,9 @@ export function MarkdownComposer({
         } else {
           const fallbackRow = document.createElement('div')
           fallbackRow.innerHTML = '<br>'
-          editor.append(fallbackRow)
+          const editorNode = editorRef.current
+          if (!editorNode) return
+          editorNode.append(fallbackRow)
           const selection = window.getSelection()
           if (selection) {
             const range = document.createRange()
