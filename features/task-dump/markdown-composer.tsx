@@ -281,6 +281,15 @@ export function MarkdownComposer({
     const editor = editorRef.current
     if (!editor) return
 
+    function handleCopy(event: ClipboardEvent) {
+      const selection = window.getSelection()
+      const selectedText = selection?.toString() ?? ''
+      if (!selectedText) return
+      if (!event.clipboardData) return
+      event.preventDefault()
+      event.clipboardData.setData('text/plain', selectedText)
+    }
+
     function handleClick(event: MouseEvent) {
       const target = event.target as HTMLElement
       const anchor = target.closest('a[href]') as HTMLAnchorElement | null
@@ -311,9 +320,11 @@ export function MarkdownComposer({
       })
     }
 
+    editor.addEventListener('copy', handleCopy)
     editor.addEventListener('click', handleClick)
     editor.addEventListener('mousedown', handleMousedown)
     return () => {
+      editor.removeEventListener('copy', handleCopy)
       editor.removeEventListener('click', handleClick)
       editor.removeEventListener('mousedown', handleMousedown)
     }

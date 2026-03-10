@@ -240,14 +240,36 @@ function getTaskBodyPreview(body: string): string {
   return stripHtmlToText(body)
 }
 
+function normalizeCopiedText(value: string): string {
+  if (!/<[a-z][\s\S]*>/i.test(value)) return value
+  const probe = document.createElement('div')
+  probe.innerHTML = value
+  probe.style.position = 'fixed'
+  probe.style.left = '-99999px'
+  probe.style.top = '0'
+  probe.style.opacity = '0'
+  probe.style.pointerEvents = 'none'
+  probe.style.whiteSpace = 'pre-wrap'
+  document.body.appendChild(probe)
+  const text = (probe.innerText || probe.textContent || stripHtmlToText(value))
+    .replace(/\r\n/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  document.body.removeChild(probe)
+  return text
+}
+
 async function copyToClipboard(value: string): Promise<boolean> {
+  const textValue = normalizeCopiedText(value)
   try {
-    await navigator.clipboard.writeText(value)
+    await navigator.clipboard.writeText(textValue)
     return true
   } catch {
     try {
       const textarea = document.createElement('textarea')
-      textarea.value = value
+      textarea.value = textValue
       textarea.setAttribute('readonly', 'true')
       textarea.style.position = 'fixed'
       textarea.style.opacity = '0'
