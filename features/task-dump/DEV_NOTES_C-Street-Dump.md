@@ -117,6 +117,47 @@ After editing this feature, run through:
 - `execCommand` path has been removed from the composer; current editor model is textarea-based.
 - If a future refactor reintroduces rich DOM editing, document the migration details here before merging.
 
+## Update Log - 2026-03-10 (Task Flow + Context Menu Controls)
+
+### Task card interactions (overview columns)
+
+- Drag-and-drop remains intentionally absent.
+- Task delete is now context-menu only on cards:
+  - Right-click a task card to open actions.
+  - `Delete task` lives in the context menu (red action).
+  - No always-visible trash icon on card chrome.
+- Status stepping is still one-click on card edge controls:
+  - skinny tail arrows (`ArrowLeft` / `ArrowRight`) remain on the card.
+  - move forward/backward between `Pending` -> `In Progress` -> `Done`.
+  - status change shows toast with `Undo`.
+
+### In-column ordering (new)
+
+- Right-click task card menu now includes in-column move controls:
+  - up/down arrows displayed side-by-side (not stacked).
+  - controls are disabled at column boundaries.
+  - hover state is intentional (`hover:bg-accent` + brighter icon) for click affordance.
+- Reorder persistence path:
+  - UI updates optimistically for same-column order.
+  - persisted through `reorderTaskDumpTasks(...)` in `lib/task-dump-queries.ts`.
+  - failure path shows toast and reloads snapshot.
+
+### Workspace panel behavior in task modal
+
+- Workspace section now defaults to expanded when opening a task that already has one or more workspace blocks.
+- Tasks with zero workspace blocks still open with Workspace collapsed.
+
+### URL handling in editable text fields
+
+- `MarkdownComposer` now linkifies plain `http/https` URLs in editable content.
+- Clicking links in editor content opens a new window/tab (`_blank`) with `noopener,noreferrer`.
+- Preview-mode anchors are normalized to also open in new tab/window.
+
+### Workspace note placeholder
+
+- Workspace note editor placeholder is now `Write a note...`.
+- Placeholder is intentionally dimmer (`text-foreground/45`) to provide a clear but low-noise click target cue.
+
 ## Update Log - 2026-03-09 (Radical Minimal Pass)
 
 This section captures the latest redesign decisions now live on `main` and deployed to Vercel.

@@ -1345,13 +1345,13 @@ function TaskDialog({
   const [titleDraft, setTitleDraft] = useState('')
 
   useEffect(() => {
-    if (open) {
+    if (open && task) {
       // Sync local panel/editor state each time a task dialog session starts.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setWorkspaceOpen(false)
+      setWorkspaceOpen(task.workspace_blocks.length > 0)
     }
     setIsEditingTitle(false)
-  }, [open, task?.id])
+  }, [open, task])
 
   useEffect(() => {
     if (!task) return
