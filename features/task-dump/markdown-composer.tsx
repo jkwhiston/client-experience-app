@@ -259,8 +259,8 @@ export function MarkdownComposer({
     <div className="relative">
       <div
         className={cn(
-          'rounded-xl border border-border/85 bg-background/60 transition-colors',
-          isFocused ? 'ring-2 ring-primary/20' : 'hover:border-border',
+          'rounded-none border-0 bg-transparent transition-colors',
+          isFocused ? '' : '',
           className
         )}
       >
@@ -319,7 +319,7 @@ export function MarkdownComposer({
               )}
             />
             {isEmpty && (
-              <div className="pointer-events-none absolute inset-0 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+              <div className="pointer-events-none absolute inset-0 px-4 py-3 text-sm leading-relaxed text-foreground/60">
                 {placeholder}
               </div>
             )}
@@ -353,7 +353,7 @@ export function MarkdownComposer({
                 : 'pointer-events-none max-h-0 opacity-0')
           )}
         >
-          <div className="flex items-center gap-0.5 rounded-xl border border-border/70 bg-popover/90 p-1">
+          <div className="flex items-center gap-0.5 p-1">
             {FORMAT_ITEMS.map((item) => {
               const Icon = item.icon
               return (
@@ -367,7 +367,7 @@ export function MarkdownComposer({
                   }}
                   disabled={editorMode === 'preview'}
                   className={cn(
-                    'flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-accent hover:text-accent-foreground',
+                    'flex h-8 w-8 items-center justify-center transition-colors hover:text-foreground',
                     editorMode === 'preview' && 'cursor-not-allowed opacity-45 hover:bg-transparent hover:text-current'
                   )}
                 >
@@ -375,7 +375,7 @@ export function MarkdownComposer({
                 </button>
               )
             })}
-            <div className="mx-1 h-5 w-px bg-border/60" />
+            <div className="mx-1 h-4 w-px bg-foreground/20" />
             <button
               type="button"
               title={editorMode === 'preview' ? 'Back to editing' : 'Preview markdown'}
@@ -384,7 +384,7 @@ export function MarkdownComposer({
                 toggleMode()
               }}
               className={cn(
-                'ml-auto flex h-8 items-center justify-center gap-1 rounded-lg px-2 text-[11px] font-medium uppercase tracking-[0.14em] transition-colors hover:bg-accent hover:text-accent-foreground',
+                'ml-auto flex h-8 items-center justify-center gap-1 px-2 text-[11px] font-medium uppercase tracking-[0.14em] transition-colors hover:text-foreground',
                 editorMode === 'preview' && 'bg-accent text-accent-foreground ring-1 ring-primary/30'
               )}
             >

@@ -4,38 +4,20 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import {
-  closestCorners,
-  DndContext,
-  PointerSensor,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  arrayMove,
-  rectSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import {
   ArrowLeft,
   Bold,
   CalendarDays,
   Check,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   Copy,
   ExternalLink,
+  Flag,
   FileAudio,
   FileImage,
   FileText,
   FileVideo,
-  GripVertical,
   Italic,
-  Link2,
   List,
   ListChecks,
   ListOrdered,
@@ -51,7 +33,6 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -85,7 +66,6 @@ import {
   deleteTaskDumpThought,
   fetchTaskDumpSnapshot,
   getTaskDumpAttachmentUrl,
-  reorderTaskDumpTasks,
   restoreTaskDumpTask,
   restoreTaskDumpThought,
   updateTaskDumpBlock,
@@ -109,6 +89,7 @@ import {
   type TaskDumpThought,
   type TaskDumpWorkspaceBlock,
 } from '@/lib/task-dump-types'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { MarkdownComposer } from '@/features/task-dump/markdown-composer'
 
 const DEFAULT_SNAPSHOT: TaskDumpSnapshot = {
@@ -283,7 +264,7 @@ function CopyIconButton({
       type="button"
       variant="ghost"
       size="icon"
-      className={cn('h-8 w-8 text-muted-foreground', className)}
+      className={cn('h-7 w-7 text-foreground/15 hover:text-foreground/40', className)}
       aria-label={label}
       onClick={async () => {
         const success = await copyToClipboard(value)
@@ -299,7 +280,7 @@ function CopyIconButton({
         }, 1200)
       }}
     >
-      {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+      {copied ? <Check className="h-3.5 w-3.5 text-foreground/40" /> : <Copy className="h-3.5 w-3.5" />}
     </Button>
   )
 }
@@ -312,45 +293,32 @@ const TASK_DUMP_STATUS_STYLES: Record<
     columnClassName: string
     columnBadgeClassName: string
     emptyStateClassName: string
-    cardClassName: string
     cardMetaClassName: string
   }
 > = {
   pending: {
-    summaryClassName:
-      'border-amber-400/25 bg-gradient-to-br from-amber-500/14 via-background/90 to-background/95 shadow-[inset_0_1px_0_rgba(251,191,36,0.12)]',
-    summaryCountClassName: 'text-amber-200',
-    columnClassName:
-      'border-amber-400/20 bg-gradient-to-b from-amber-500/10 via-background to-background/95 shadow-[inset_0_1px_0_rgba(251,191,36,0.12)]',
-    columnBadgeClassName: 'border border-amber-300/20 bg-amber-400/12 text-amber-100',
-    emptyStateClassName: 'border-amber-300/18 bg-amber-400/[0.04] text-amber-50/75',
-    cardClassName:
-      'border-amber-300/16 bg-gradient-to-br from-amber-400/16 via-background/98 to-background shadow-[0_10px_30px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(253,230,138,0.12)] hover:border-amber-300/28',
-    cardMetaClassName: 'text-amber-100/75',
+    summaryClassName: '',
+    summaryCountClassName: '',
+    columnClassName: 'relative before:absolute before:inset-y-0 before:left-0 before:w-px before:origin-left before:scale-x-50 before:bg-amber-500',
+    columnBadgeClassName: 'text-amber-500',
+    emptyStateClassName: 'text-foreground/20',
+    cardMetaClassName: 'text-foreground/35',
   },
   in_progress: {
-    summaryClassName:
-      'border-sky-400/25 bg-gradient-to-br from-sky-500/14 via-background/90 to-background/95 shadow-[inset_0_1px_0_rgba(56,189,248,0.12)]',
-    summaryCountClassName: 'text-sky-200',
-    columnClassName:
-      'border-sky-400/20 bg-gradient-to-b from-sky-500/10 via-background to-background/95 shadow-[inset_0_1px_0_rgba(56,189,248,0.12)]',
-    columnBadgeClassName: 'border border-sky-300/20 bg-sky-400/12 text-sky-100',
-    emptyStateClassName: 'border-sky-300/18 bg-sky-400/[0.04] text-sky-50/75',
-    cardClassName:
-      'border-sky-300/16 bg-gradient-to-br from-sky-400/16 via-background/98 to-background shadow-[0_10px_30px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(186,230,253,0.12)] hover:border-sky-300/28',
-    cardMetaClassName: 'text-sky-100/75',
+    summaryClassName: '',
+    summaryCountClassName: '',
+    columnClassName: 'relative before:absolute before:inset-y-0 before:left-0 before:w-px before:origin-left before:scale-x-50 before:bg-sky-500',
+    columnBadgeClassName: 'text-sky-500',
+    emptyStateClassName: 'text-foreground/20',
+    cardMetaClassName: 'text-foreground/35',
   },
   done: {
-    summaryClassName:
-      'border-emerald-400/25 bg-gradient-to-br from-emerald-500/14 via-background/90 to-background/95 shadow-[inset_0_1px_0_rgba(52,211,153,0.12)]',
-    summaryCountClassName: 'text-emerald-200',
-    columnClassName:
-      'border-emerald-400/20 bg-gradient-to-b from-emerald-500/10 via-background to-background/95 shadow-[inset_0_1px_0_rgba(52,211,153,0.12)]',
-    columnBadgeClassName: 'border border-emerald-300/20 bg-emerald-400/12 text-emerald-100',
-    emptyStateClassName: 'border-emerald-300/18 bg-emerald-400/[0.04] text-emerald-50/75',
-    cardClassName:
-      'border-emerald-300/16 bg-gradient-to-br from-emerald-400/16 via-background/98 to-background shadow-[0_10px_30px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(209,250,229,0.12)] hover:border-emerald-300/28',
-    cardMetaClassName: 'text-emerald-100/75',
+    summaryClassName: '',
+    summaryCountClassName: '',
+    columnClassName: 'relative before:absolute before:inset-y-0 before:left-0 before:w-px before:origin-left before:scale-x-50 before:bg-emerald-500',
+    columnBadgeClassName: 'text-emerald-500',
+    emptyStateClassName: 'text-foreground/20',
+    cardMetaClassName: 'text-foreground/35',
   },
 }
 
@@ -365,112 +333,30 @@ const TASK_DUMP_MODAL_SURFACE_STYLES: Record<
   }
 > = {
   pending: {
-    dialogClassName:
-      'bg-background border-border/70 shadow-[0_18px_40px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(253,230,138,0.12)]',
-    borderGradientStart: '251 191 36',
-    headerClassName:
-      'bg-gradient-to-r from-amber-500/10 via-background to-background',
-    workspaceLabelClassName: 'text-amber-100/82',
-    railClassName: 'border-l-amber-300/58',
+    dialogClassName: 'border border-foreground/28 bg-background shadow-none',
+    borderGradientStart: '',
+    headerClassName: '',
+    workspaceLabelClassName: 'text-foreground/40',
+    railClassName: 'border-l-foreground/15',
   },
   in_progress: {
-    dialogClassName:
-      'bg-background border-border/70 shadow-[0_18px_40px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(186,230,253,0.12)]',
-    borderGradientStart: '56 189 248',
-    headerClassName:
-      'bg-gradient-to-r from-sky-500/10 via-background to-background',
-    workspaceLabelClassName: 'text-sky-100/82',
-    railClassName: 'border-l-sky-300/58',
+    dialogClassName: 'border border-foreground/28 bg-background shadow-none',
+    borderGradientStart: '',
+    headerClassName: '',
+    workspaceLabelClassName: 'text-foreground/40',
+    railClassName: 'border-l-foreground/15',
   },
   done: {
-    dialogClassName:
-      'bg-background border-border/70 shadow-[0_18px_40px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(209,250,229,0.12)]',
-    borderGradientStart: '52 211 153',
-    headerClassName:
-      'bg-gradient-to-r from-emerald-500/10 via-background to-background',
-    workspaceLabelClassName: 'text-emerald-100/82',
-    railClassName: 'border-l-emerald-300/58',
+    dialogClassName: 'border border-foreground/28 bg-background shadow-none',
+    borderGradientStart: '',
+    headerClassName: '',
+    workspaceLabelClassName: 'text-foreground/40',
+    railClassName: 'border-l-foreground/15',
   },
-}
-
-function getColumnFromOverId(snapshot: TaskDumpSnapshot, overId: string): TaskDumpStatus | null {
-  if (overId.startsWith('column:')) {
-    const status = overId.replace('column:', '')
-    return TASK_DUMP_STATUSES.includes(status as TaskDumpStatus)
-      ? (status as TaskDumpStatus)
-      : null
-  }
-
-  return snapshot.tasks.find((task) => task.id === overId)?.status ?? null
-}
-
-function buildReorderedTasks(
-  snapshot: TaskDumpSnapshot,
-  activeId: string,
-  overId: string
-) {
-  const grouped = groupTasksByStatus(snapshot.tasks)
-  const activeTask = snapshot.tasks.find((task) => task.id === activeId)
-  if (!activeTask) return null
-
-  const targetStatus = getColumnFromOverId(snapshot, overId)
-  if (!targetStatus) return null
-
-  const sourceList = [...grouped[activeTask.status]]
-  const sourceIndex = sourceList.findIndex((task) => task.id === activeId)
-  if (sourceIndex === -1) return null
-
-  const [movedTask] = sourceList.splice(sourceIndex, 1)
-
-  if (activeTask.status === targetStatus) {
-    const targetList = sourceList
-    const overIndex = overId.startsWith('column:')
-      ? targetList.length
-      : targetList.findIndex((task) => task.id === overId)
-    const baseList = [...grouped[targetStatus]]
-    const nextList = overId.startsWith('column:')
-      ? [...targetList, movedTask]
-      : overIndex === -1
-        ? [...targetList, movedTask]
-        : arrayMove(baseList, sourceIndex, overIndex)
-
-    const normalizedGroup = {
-      ...grouped,
-      [targetStatus]: nextList.map((task, index) => ({
-        ...task,
-        column_order: index,
-      })),
-    }
-
-    return TASK_DUMP_STATUSES.flatMap((status) => normalizedGroup[status])
-  }
-
-  const targetList = [...grouped[targetStatus]]
-  const overIndex = overId.startsWith('column:')
-    ? targetList.length
-    : targetList.findIndex((task) => task.id === overId)
-  const insertAt = overIndex === -1 ? targetList.length : overIndex
-  targetList.splice(insertAt, 0, { ...movedTask, status: targetStatus })
-
-  const nextGroups = {
-    ...grouped,
-    [activeTask.status]: sourceList.map((task, index) => ({
-      ...task,
-      column_order: index,
-    })),
-    [targetStatus]: targetList.map((task, index) => ({
-      ...task,
-      status: targetStatus,
-      column_order: index,
-    })),
-  }
-
-  return TASK_DUMP_STATUSES.flatMap((status) => nextGroups[status])
 }
 
 export function TaskDumpApp() {
   const router = useRouter()
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const [snapshot, setSnapshot] = useState<TaskDumpSnapshot>(DEFAULT_SNAPSHOT)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -484,7 +370,6 @@ export function TaskDumpApp() {
   const [quickThoughtText, setQuickThoughtText] = useState('')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedThoughtId, setSelectedThoughtId] = useState<string | null>(null)
-  const [thoughtsOpen, setThoughtsOpen] = useState(true)
   const [busyAttachmentTarget, setBusyAttachmentTarget] = useState<string | null>(null)
 
   const taskTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
@@ -496,6 +381,11 @@ export function TaskDumpApp() {
   const blockTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const blockPayloadRef = useRef(new Map<string, BlockSavePayload>())
   const blockSaveVersionRef = useRef(new Map<string, number>())
+
+  useEffect(() => {
+    document.documentElement.classList.add('cstreet-mono')
+    return () => { document.documentElement.classList.remove('cstreet-mono') }
+  }, [])
 
   useEffect(() => {
     const taskTimers = taskTimersRef.current
@@ -819,33 +709,6 @@ export function TaskDumpApp() {
     }
   }
 
-  async function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-
-    const nextTasks = buildReorderedTasks(snapshot, String(active.id), String(over.id))
-    if (!nextTasks) return
-
-    setSnapshot((prev) => ({
-      ...prev,
-      tasks: nextTasks,
-    }))
-
-    try {
-      const nextSnapshot = await reorderTaskDumpTasks(
-        nextTasks.map((task) => ({
-          id: task.id,
-          status: task.status,
-          columnOrder: task.column_order,
-        }))
-      )
-      setSnapshot(nextSnapshot)
-    } catch (reorderError) {
-      toast.error(reorderError instanceof Error ? reorderError.message : 'Could not reorder tasks.')
-      await load()
-    }
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
@@ -863,24 +726,20 @@ export function TaskDumpApp() {
     return (
       <div className="min-h-screen bg-background">
         <div className="mx-auto max-w-[900px] px-4 py-10 sm:px-6">
-          <Card className="gap-0 overflow-hidden py-0">
-            <CardHeader className="border-b px-6 py-5">
-              <CardTitle>C-Street Dump</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4 px-6 py-6">
-              <p className="text-sm text-muted-foreground">{error}</p>
-              <div className="flex gap-2">
-                <Button onClick={load}>
-                  <RefreshCcw className="mr-2 h-4 w-4" />
-                  Retry
-                </Button>
-                <Button variant="outline" onClick={() => router.push('/')}>
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back to tracker
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="space-y-5 border-l border-border pl-5">
+            <h1 className="text-xl font-semibold tracking-tight">C-Street Dump</h1>
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={load}>
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                Retry
+              </Button>
+              <Button variant="ghost" onClick={() => router.push('/')}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to tracker
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -888,40 +747,36 @@ export function TaskDumpApp() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto flex max-w-[1600px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <div className="space-y-2">
-          <div className="space-y-2">
-            <Button variant="ghost" className="h-8 px-2 text-muted-foreground" onClick={() => router.push('/')}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Client Experience Tracker
-            </Button>
-            <div>
-              <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight">
-                <DumpTruckDumpingIcon />
-                C-Street Dump
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                A messy hub for Tasks and Thoughts.
-              </p>
-            </div>
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-12 px-6 py-10 sm:px-10 lg:px-16">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <button type="button" className="text-foreground/65 transition-colors hover:text-foreground" onClick={() => router.push('/')}>
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <h1 className="flex items-center gap-3 text-2xl font-normal tracking-tight">
+              <DumpTruckDumpingIcon className="h-8 w-8" />
+              C-Street Dump
+            </h1>
+          </div>
+          <div className="text-foreground/65 transition-colors hover:text-foreground [&_button]:h-auto [&_button]:w-auto [&_button]:border-0 [&_button]:bg-transparent [&_button]:p-0 [&_button]:shadow-none hover:[&_button]:bg-transparent">
+            <ThemeToggle />
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="space-y-5">
-            <Card className="gap-0 overflow-hidden py-0">
-              <CardContent className="space-y-3 px-5 py-5">
+        <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="space-y-8">
+            <div className="space-y-4 pb-8">
                 <Input
                   value={quickTaskTitle}
                   onChange={(event) => setQuickTaskTitle(event.target.value)}
-                  placeholder="Title (optional)"
-                  className="h-9 border-border/60 bg-background/40"
+                  placeholder="Title"
+                  className="h-10 rounded-none border-0 border-b border-b-foreground/25 bg-transparent px-0 text-base font-normal shadow-none dark:bg-transparent placeholder:text-foreground/60 focus-visible:border-b-foreground/60 focus-visible:ring-0"
                 />
-                <div ref={quickDumpEditorWrapRef}>
+                <div ref={quickDumpEditorWrapRef} className="border-b border-b-foreground/20 transition-colors focus-within:border-b-foreground/60">
                   <MarkdownComposer
                     value={quickTaskText}
                     onChange={setQuickTaskText}
-                    placeholder="Drop a task here..."
+                    placeholder="Write a task..."
                     minHeightClassName="min-h-[88px]"
                     maxHeightClassName="max-h-[260px]"
                     maxHeightPx={260}
@@ -934,40 +789,49 @@ export function TaskDumpApp() {
                     }}
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex w-full flex-wrap items-center gap-0">
                   <Select
                     value={quickTaskPriority}
                     onValueChange={(value) => setQuickTaskPriority(value as TaskDumpPriorityFlag)}
                   >
                     <SelectTrigger
                       className={cn(
-                        'h-8 w-auto min-w-[110px] gap-1.5 rounded-md border-border/50 bg-background/35 px-2.5 text-xs',
-                        TASK_DUMP_PRIORITY_OPTIONS.find((o) => o.value === quickTaskPriority)?.className ?? 'text-muted-foreground'
+                        'h-8 w-auto min-w-0 justify-start gap-1.5 rounded-none border-0 bg-transparent px-0 text-sm shadow-none dark:bg-transparent focus:ring-0 [&>svg]:hidden',
+                        quickTaskPriority === 'none'
+                          ? 'text-foreground/90 data-[placeholder]:text-foreground/90'
+                          : (TASK_DUMP_PRIORITY_OPTIONS.find((option) => option.value === quickTaskPriority)?.className ?? 'text-foreground/90')
                       )}
                     >
-                      <SelectValue />
+                      <span className="inline-flex items-center gap-1.5">
+                        <Flag
+                          className="h-3.5 w-3.5 text-foreground/90"
+                          aria-hidden="true"
+                        />
+                        <SelectValue placeholder="Flag" />
+                      </span>
                     </SelectTrigger>
                     <SelectContent>
                       {TASK_DUMP_PRIORITY_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value} className={cn(option.className)}>
-                          {option.label}
+                          {option.value === 'none' ? 'Flag' : option.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <div className="mx-2 h-4 w-px bg-foreground/10" aria-hidden="true" />
 
                   <Popover>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="ghost"
+                      <button
+                        type="button"
                         className={cn(
-                          'h-8 gap-1.5 rounded-md border border-border/50 bg-background/35 px-2.5 text-xs',
-                          !quickTaskDueAt && 'text-muted-foreground'
+                          'inline-flex h-8 items-center gap-1.5 border-0 bg-transparent px-0 text-sm transition-colors hover:text-foreground',
+                          !quickTaskDueAt ? 'text-foreground/90' : 'text-foreground'
                         )}
                       >
                         <CalendarDays className="h-3.5 w-3.5" />
-                        {quickTaskDueAt ? formatTaskDumpDate(quickTaskDueAt) : 'Due date'}
-                      </Button>
+                        {quickTaskDueAt ? formatTaskDumpDate(quickTaskDueAt) : 'Due'}
+                      </button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
                       <Calendar
@@ -984,18 +848,42 @@ export function TaskDumpApp() {
                       )}
                     </PopoverContent>
                   </Popover>
+                  <div className="mx-2 h-4 w-px bg-foreground/10" aria-hidden="true" />
+                  <div className="flex items-center gap-1">
+                    {QUICK_DUMP_FORMAT_ITEMS.map((item) => {
+                      const Icon = item.icon
+                      return (
+                        <button
+                          key={item.action}
+                          type="button"
+                          title={item.label}
+                          className="flex h-6 w-6 items-center justify-center text-foreground/80 transition-colors hover:text-foreground"
+                          onMouseDown={(event) => {
+                            event.preventDefault()
+                            applyQuickDumpFormat(item.action)
+                          }}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                        </button>
+                      )
+                    })}
+                  </div>
 
-                  <Button
-                    variant="ghost"
+                  <button
+                    type="button"
                     className={cn(
-                      'h-8 gap-1.5 rounded-md border border-border/50 bg-background/35 px-2.5 text-xs',
-                      quickTaskFiles.length > 0 ? 'text-foreground' : 'text-muted-foreground'
+                      'ml-auto inline-flex items-center text-sm transition-colors',
+                      quickTaskFiles.length > 0 ? 'text-foreground' : 'text-foreground/80 hover:text-foreground'
                     )}
+                    aria-label="Attach files"
+                    title="Attach files"
                     onClick={() => quickTaskFileInputRef.current?.click()}
                   >
                     <Paperclip className="h-3.5 w-3.5" />
-                    {quickTaskFiles.length > 0 ? `${quickTaskFiles.length} file${quickTaskFiles.length > 1 ? 's' : ''}` : 'Attach'}
-                  </Button>
+                    {quickTaskFiles.length > 0 ? (
+                      <span className="ml-1 text-[11px]">{quickTaskFiles.length}</span>
+                    ) : null}
+                  </button>
                   <input
                     ref={quickTaskFileInputRef}
                     type="file"
@@ -1007,36 +895,16 @@ export function TaskDumpApp() {
                       event.target.value = ''
                     }}
                   />
-                  <div className="mx-1 h-5 w-px bg-border/50" aria-hidden="true" />
-                  <div className="flex items-center gap-0.5 rounded-md border border-border/50 bg-background/35 px-1 py-1">
-                    {QUICK_DUMP_FORMAT_ITEMS.map((item) => {
-                      const Icon = item.icon
-                      return (
-                        <button
-                          key={item.action}
-                          type="button"
-                          title={item.label}
-                          className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                          onMouseDown={(event) => {
-                            event.preventDefault()
-                            applyQuickDumpFormat(item.action)
-                          }}
-                        >
-                          <Icon className="h-3.5 w-3.5" />
-                        </button>
-                      )
-                    })}
-                  </div>
                 </div>
 
                 {quickTaskFiles.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {quickTaskFiles.map((file, idx) => (
-                      <span key={idx} className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-muted/30 px-2 py-0.5 text-[11px] text-muted-foreground">
+                      <span key={idx} className="inline-flex items-center gap-1 text-xs text-foreground/70">
                         {file.name}
                         <button
                           type="button"
-                          className="ml-0.5 text-muted-foreground/60 hover:text-foreground"
+                          className="ml-0.5 text-foreground/65 hover:text-foreground"
                           onClick={() => setQuickTaskFiles((prev) => prev.filter((_, i) => i !== idx))}
                         >
                           &times;
@@ -1046,36 +914,32 @@ export function TaskDumpApp() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button onClick={handleQuickTaskCreate}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Dump Task
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    Cmd/Ctrl + Enter
-                  </span>
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 text-sm text-foreground/90 transition-colors hover:text-foreground"
+                    onClick={handleQuickTaskCreate}
+                  >
+                    <Plus className="h-4 w-4" />
+                    dump
+                  </button>
                 </div>
-              </CardContent>
-            </Card>
+            </div>
 
-            <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
-              <div className="grid gap-4 lg:grid-cols-3">
-                {TASK_DUMP_STATUSES.map((status) => (
-                  <TaskColumn
-                    key={status}
-                    status={status}
-                    tasks={groupedTasks[status]}
-                    onOpenTask={setSelectedTaskId}
-                    onDeleteTask={handleTaskDelete}
-                  />
-                ))}
-              </div>
-            </DndContext>
+            <div className="grid gap-8 lg:grid-cols-3">
+              {TASK_DUMP_STATUSES.map((status) => (
+                <TaskColumn
+                  key={status}
+                  status={status}
+                  tasks={groupedTasks[status]}
+                  onOpenTask={setSelectedTaskId}
+                  onDeleteTask={handleTaskDelete}
+                />
+              ))}
+            </div>
           </div>
 
           <ThoughtsPanel
-            open={thoughtsOpen}
-            onToggle={() => setThoughtsOpen((current) => !current)}
             thoughts={snapshot.thoughts}
             quickThoughtText={quickThoughtText}
             onQuickThoughtChange={setQuickThoughtText}
@@ -1205,47 +1069,31 @@ const TaskColumn = memo(function TaskColumn({
   onOpenTask: (taskId: string) => void
   onDeleteTask: (taskId: string) => void
 }) {
-  const { setNodeRef } = useDroppable({
-    id: `column:${status}`,
-  })
   const statusStyles = TASK_DUMP_STATUS_STYLES[status]
 
   return (
-    <div
-      ref={setNodeRef}
-      className={cn('rounded-2xl p-4 backdrop-blur-sm', statusStyles.columnClassName)}
-    >
-      <div className="mb-4 flex items-center justify-between">
-        <div className={cn('rounded-full px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em]', statusStyles.columnBadgeClassName)}>
+    <div className={cn('pl-5', statusStyles.columnClassName)}>
+      <div className="mb-5 flex items-center justify-between">
+        <span className={cn('text-xs font-medium uppercase tracking-[0.2em]', statusStyles.columnBadgeClassName)}>
           {TASK_DUMP_STATUS_LABELS[status]}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}
-        </p>
+        </span>
       </div>
 
-      <SortableContext items={tasks.map((task) => task.id)} strategy={rectSortingStrategy}>
-        <div className="min-h-[240px] space-y-3">
-          {tasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              onOpenTask={onOpenTask}
-              onDeleteTask={onDeleteTask}
-            />
-          ))}
-          {tasks.length === 0 && (
-            <div
-              className={cn(
-                'rounded-xl border border-dashed px-4 py-10 text-center text-sm',
-                statusStyles.emptyStateClassName
-              )}
-            >
-              Drop tasks here.
-            </div>
-          )}
-        </div>
-      </SortableContext>
+      <div className="min-h-[200px] space-y-1">
+        {tasks.map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            onOpenTask={onOpenTask}
+            onDeleteTask={onDeleteTask}
+          />
+        ))}
+        {tasks.length === 0 && (
+          <p className={cn('py-10 text-center text-sm', statusStyles.emptyStateClassName)}>
+            —
+          </p>
+        )}
+      </div>
     </div>
   )
 })
@@ -1259,75 +1107,39 @@ const TaskCard = memo(function TaskCard({
   onOpenTask: (taskId: string) => void
   onDeleteTask: (taskId: string) => void
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: task.id })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
   const statusStyles = TASK_DUMP_STATUS_STYLES[task.status]
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        'group rounded-xl p-4 transition-all hover:-translate-y-0.5 hover:shadow-lg',
-        statusStyles.cardClassName,
-        isDragging && 'opacity-70 shadow-lg'
-      )}
-    >
-      <div className="flex items-start gap-3">
-        <button
-          type="button"
-          className="mt-0.5 cursor-grab text-muted-foreground hover:text-foreground"
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-
+    <div className="group py-4 pl-5 pr-2 transition-colors">
+      <div className="flex items-start gap-2">
         <button type="button" onClick={() => onOpenTask(task.id)} className="min-w-0 flex-1 text-left">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className={cn('text-xs font-medium uppercase tracking-[0.18em]', getPriorityClass(task.priority_flag))}>
-                {task.priority_flag === 'none' ? '' : `${task.priority_flag} priority`}
-              </div>
-              <h3 className="mt-1 truncate text-sm font-semibold">
-                {task.title || stripHtmlToText(task.body).slice(0, 80) || 'Untitled task'}
-              </h3>
-            </div>
-            <span className="shrink-0 text-[11px] text-muted-foreground">
-              {task.attachments.length > 0 ? `${task.attachments.length} files` : ''}
+          {task.priority_flag !== 'none' && (
+            <span className={cn('text-[10px] uppercase tracking-[0.2em]', getPriorityClass(task.priority_flag))}>
+              {task.priority_flag}
             </span>
-          </div>
-
+          )}
+          <h3 className="text-sm text-foreground">
+            {task.title || stripHtmlToText(task.body).slice(0, 60) || 'Untitled'}
+          </h3>
           {task.body.trim() && (
-            <p className="mt-3 line-clamp-4 text-sm text-muted-foreground">
+            <p className="mt-1.5 line-clamp-2 text-xs text-foreground/60">
               {getTaskBodyPreview(task.body)}
             </p>
           )}
-
-          <div className={cn('mt-4 flex justify-end text-[11px]', statusStyles.cardMetaClassName)}>
-            <span>{formatTaskDumpDate(task.due_at)}</span>
-          </div>
+          {task.due_at && (
+            <p className={cn('mt-2 text-[11px]', statusStyles.cardMetaClassName)}>
+              {formatTaskDumpDate(task.due_at)}
+            </p>
+          )}
         </button>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0 text-muted-foreground/55 opacity-0 transition-[opacity,color] duration-300 ease-out hover:text-muted-foreground group-hover:opacity-100 focus-visible:opacity-100"
+        <button
+          type="button"
+          className="mt-1 shrink-0 text-foreground/0 transition-colors group-hover:text-foreground/55 hover:!text-foreground/85"
           onClick={() => onDeleteTask(task.id)}
         >
           <Trash2 className="h-4 w-4" />
-        </Button>
+        </button>
       </div>
     </div>
   )
@@ -1375,6 +1187,8 @@ function TaskDialog({
 
   useEffect(() => {
     if (open) {
+      // Sync local panel/editor state each time a task dialog session starts.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setWorkspaceOpen(false)
     }
     setIsEditingTitle(false)
@@ -1383,6 +1197,7 @@ function TaskDialog({
   useEffect(() => {
     if (!task) return
     if (isEditingTitle) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTitleDraft(task.title ?? '')
   }, [task, isEditingTitle])
 
@@ -1390,23 +1205,11 @@ function TaskDialog({
   const modalSurfaceStyles = TASK_DUMP_MODAL_SURFACE_STYLES[task.status]
   const statusAccent =
     task.status === 'pending'
-      ? { dotClassName: 'bg-amber-400', textClassName: 'text-amber-200' }
+      ? { dotClassName: 'bg-amber-400', textClassName: 'text-amber-400/80' }
       : task.status === 'in_progress'
-        ? { dotClassName: 'bg-sky-400', textClassName: 'text-sky-200' }
-        : { dotClassName: 'bg-emerald-400', textClassName: 'text-emerald-200' }
+        ? { dotClassName: 'bg-sky-400', textClassName: 'text-sky-400/80' }
+        : { dotClassName: 'bg-emerald-400', textClassName: 'text-emerald-400/80' }
   const priorityMeta = TASK_DUMP_PRIORITY_OPTIONS.find((option) => option.value === task.priority_flag) ?? TASK_DUMP_PRIORITY_OPTIONS[0]
-  const priorityDotClassName =
-    task.priority_flag === 'high'
-      ? 'bg-rose-400'
-      : task.priority_flag === 'medium'
-        ? 'bg-amber-400'
-        : task.priority_flag === 'low'
-          ? 'bg-sky-400'
-          : 'bg-muted-foreground/60'
-  const c = modalSurfaceStyles.borderGradientStart
-  const cornerGlow = `radial-gradient(ellipse at top left, rgb(${c} / 0.22) 0%, rgb(${c} / 0.08) 30%, transparent 55%)`
-  const topBorderGradient = `linear-gradient(to right, rgb(${c} / 0.5) 0%, rgb(${c} / 0.2) 40%, transparent 80%)`
-  const headerBorderGradient = `linear-gradient(to right, rgb(${c} / 0.22) 0%, rgb(${c} / 0.08) 50%, transparent 85%)`
 
   function commitTitleEdit() {
     if (!task) return
@@ -1426,26 +1229,9 @@ function TaskDialog({
         showCloseButton={false}
         className={cn('max-h-[92vh] overflow-hidden p-0 sm:max-w-5xl', modalSurfaceStyles.dialogClassName)}
       >
-        <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-lg">
-          <div
-            className="absolute inset-0"
-            style={{ background: cornerGlow }}
-          />
-          <div
-            className="absolute left-0 top-0 h-px w-full"
-            style={{ background: topBorderGradient }}
-          />
-        </div>
         <DialogHeader
-          className={cn(
-            'relative sticky top-0 z-20 border-b border-border/70 bg-background px-6 py-4',
-            modalSurfaceStyles.headerClassName
-          )}
+          className="relative sticky top-0 z-20 border-b border-foreground/10 bg-background px-8 py-5"
         >
-          <div
-            className="pointer-events-none absolute bottom-[-1px] left-0 h-px w-full"
-            style={{ background: headerBorderGradient }}
-          />
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1 space-y-2">
               <DialogTitle className="sr-only">Task details</DialogTitle>
@@ -1473,12 +1259,12 @@ function TaskDialog({
                       setIsEditingTitle(false)
                     }
                   }}
-                  className="relative min-h-8 w-full cursor-text pr-2 text-xl font-semibold tracking-tight outline-none before:pointer-events-none before:absolute before:left-0 before:top-0 before:whitespace-nowrap before:text-muted-foreground/70 before:content-[attr(data-placeholder)] data-[empty=false]:before:hidden"
+                  className="relative min-h-8 w-full cursor-text pr-2 text-xl font-normal tracking-tight outline-none before:pointer-events-none before:absolute before:left-0 before:top-0 before:whitespace-nowrap before:text-foreground/45 before:content-[attr(data-placeholder)] data-[empty=false]:before:hidden"
                 />
               ) : (
                 <button
                   type="button"
-                  className="min-h-8 w-full cursor-text pr-2 text-left text-xl font-semibold tracking-tight text-foreground/95"
+                  className="min-h-8 w-full cursor-text pr-2 text-left text-xl font-normal tracking-tight text-foreground"
                   onClick={() => {
                     setTitleDraft(task.title ?? '')
                     setIsEditingTitle(true)
@@ -1499,9 +1285,10 @@ function TaskDialog({
                   {task.title?.replace(/\s+/g, ' ').trim() || 'Untitled task'}
                 </button>
               )}
-              <p className="mt-1 text-sm text-muted-foreground">
-                <span>Created {formatTaskDumpTimestamp(task.created_at)}.</span>{' '}
-                <span className="text-muted-foreground/65">Updated {formatTaskDumpTimestamp(task.updated_at)}.</span>
+              <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-foreground/65">Created {formatTaskDumpTimestamp(task.created_at)}</span>
+                <span className="text-foreground/30" aria-hidden="true">•</span>
+                <span className="text-foreground/25">Updated {formatTaskDumpTimestamp(task.updated_at)}</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -1510,10 +1297,10 @@ function TaskDialog({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-9 gap-1 px-3 text-muted-foreground hover:bg-background/50 hover:text-foreground"
+                    className="h-8 gap-1.5 px-1 text-xs text-foreground/70 hover:bg-transparent hover:text-foreground"
                   >
-                    <ExternalLink className="h-4 w-4" />
-                    Quick Links
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Links
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -1525,22 +1312,21 @@ function TaskDialog({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 text-muted-foreground hover:bg-background/50 hover:text-foreground"
+              <button
+                type="button"
+                className="text-foreground/70 transition-colors hover:text-foreground"
                 onClick={() => onDeleteTask(task.id)}
               >
                 <Trash2 className="h-4 w-4" />
                 <span className="sr-only">Delete task</span>
-              </Button>
+              </button>
             </div>
           </div>
         </DialogHeader>
 
         <div className="grid max-h-[calc(92vh-76px)] gap-0 overflow-hidden lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="subtle-scrollbar overflow-y-auto px-6 py-5">
-            <div className="space-y-6">
+          <div className="subtle-scrollbar overflow-y-auto px-8 py-6">
+            <div className="space-y-8">
               <div className="relative space-y-2">
                 <div className="absolute right-2 top-2 z-10">
                   <CopyIconButton value={task.body} label="Copy task details" />
@@ -1555,8 +1341,8 @@ function TaskDialog({
                     )
                   }}
                   placeholder="Task Details..."
-                  className="border-border/85 bg-black/60"
-                  minHeightClassName="min-h-[220px]"
+                  className="border-0 bg-transparent"
+                  minHeightClassName="min-h-[180px]"
                   maxHeightClassName="max-h-[380px]"
                   maxHeightPx={380}
                   toolbarVariant="inline"
@@ -1571,26 +1357,24 @@ function TaskDialog({
                     : 'bg-transparent pb-2'
                 )}
               >
-                <div className="mx-6 h-px bg-foreground/35" />
-                <div className="flex items-center justify-between gap-2 rounded-lg">
-                  <Button
+                <div className="mx-6 h-px bg-foreground/10" />
+                <div className="flex items-center justify-between gap-2">
+                  <button
                     type="button"
-                    variant="ghost"
-                    className="h-8 px-2 text-sm font-medium text-foreground/90 hover:text-foreground"
+                    className="inline-flex items-center gap-1.5 text-sm text-foreground/70 transition-colors hover:text-foreground"
                     onClick={() => setWorkspaceOpen((current) => !current)}
                   >
-                    {workspaceOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
-                    <span className={modalSurfaceStyles.workspaceLabelClassName}>
-                      Workspace ({task.workspace_blocks.length})
-                    </span>
-                    <span className="ml-2 text-[11px] font-medium text-muted-foreground">
-                      {workspaceOpen ? 'Collapse' : 'Expand'}
-                    </span>
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => void onAddBlock(task.id)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Note
-                  </Button>
+                    {workspaceOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    Workspace ({task.workspace_blocks.length})
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 text-sm text-foreground/65 transition-colors hover:text-foreground"
+                    onClick={() => void onAddBlock(task.id)}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    add note
+                  </button>
                 </div>
 
                 {workspaceOpen && (
@@ -1598,16 +1382,16 @@ function TaskDialog({
                     {task.workspace_blocks.map((block, index) => (
                       <div key={block.id} className={cn('space-y-2 border-l-2 pl-4', modalSurfaceStyles.railClassName)}>
                         <div className="flex items-center gap-2">
-                          <span className="shrink-0 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground/65">
-                            Note {index + 1}
+                          <span className="shrink-0 text-[10px] uppercase tracking-[0.2em] text-foreground/55">
+                            {index + 1}
                           </span>
                           <div className="flex-1" />
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                <MoreHorizontal className="h-4 w-4" />
+                              <button type="button" className="text-foreground/65 transition-colors hover:text-foreground">
+                                <MoreHorizontal className="h-3.5 w-3.5" />
                                 <span className="sr-only">Note actions</span>
-                              </Button>
+                              </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => void onDeleteBlock(block.id)}>
@@ -1633,8 +1417,8 @@ function TaskDialog({
                               )
                             }}
                             placeholder=""
-                            className="border-border/85 bg-black/60"
-                            minHeightClassName="min-h-[160px]"
+                            className="border-0 bg-transparent"
+                            minHeightClassName="min-h-[120px]"
                             maxHeightClassName="max-h-[280px]"
                             maxHeightPx={280}
                             toolbarVariant="inline"
@@ -1644,9 +1428,7 @@ function TaskDialog({
                     ))}
 
                     {task.workspace_blocks.length === 0 && (
-                      <div className="rounded-xl border border-dashed border-border/70 px-4 py-8 text-sm text-muted-foreground">
-                        No workspace blocks yet.
-                      </div>
+                      <p className="py-8 text-sm text-foreground/45">—</p>
                     )}
                   </div>
                 )}
@@ -1654,10 +1436,10 @@ function TaskDialog({
             </div>
           </div>
 
-          <div className="subtle-scrollbar overflow-y-auto border-t border-border/70 bg-muted/10 px-6 py-5 lg:border-t-0 lg:border-l">
-            <div className="space-y-6">
-              <div className="space-y-4">
-                <div className="space-y-3 border-b border-border/45 pb-4">
+          <div className="subtle-scrollbar overflow-y-auto border-t border-foreground/10 px-6 py-6 lg:border-t-0 lg:border-l lg:border-foreground/10">
+            <div className="space-y-7">
+              <div className="space-y-5">
+                <div className="space-y-3 pb-4">
                   <Select
                     value={task.status}
                     onValueChange={(value) => {
@@ -1671,7 +1453,7 @@ function TaskDialog({
                   >
                     <SelectTrigger
                       className={cn(
-                        'h-9 w-full rounded-md border-border/50 bg-background/35 px-3 text-sm',
+                        'h-9 w-full rounded-none border-0 bg-transparent px-0 text-sm shadow-none dark:bg-transparent focus:ring-0',
                         statusAccent.textClassName
                       )}
                     >
@@ -1684,13 +1466,13 @@ function TaskDialog({
                           value={status}
                           className={cn(
                             status === 'pending'
-                              ? 'text-amber-200'
+                              ? 'text-amber-400/80'
                               : status === 'in_progress'
-                                ? 'text-sky-200'
-                                : 'text-emerald-200'
+                                ? 'text-sky-400/80'
+                                : 'text-emerald-400/80'
                           )}
                         >
-                          {`• ${TASK_DUMP_STATUS_LABELS[status]}`}
+                          {TASK_DUMP_STATUS_LABELS[status]}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1709,7 +1491,7 @@ function TaskDialog({
                   >
                     <SelectTrigger
                       className={cn(
-                        'h-9 w-full rounded-md border-border/50 bg-background/35 px-3 text-sm',
+                        'h-9 w-full rounded-none border-0 bg-transparent px-0 text-sm shadow-none dark:bg-transparent focus:ring-0',
                         priorityMeta.className
                       )}
                     >
@@ -1718,7 +1500,7 @@ function TaskDialog({
                     <SelectContent>
                       {TASK_DUMP_PRIORITY_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value} className={cn(option.className)}>
-                          {`• ${option.label}`}
+                          {option.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1728,10 +1510,10 @@ function TaskDialog({
                     <PopoverTrigger asChild>
                       <Button
                         variant="ghost"
-                        className="h-9 w-full justify-start rounded-md border border-border/50 bg-background/35 px-3 text-sm hover:bg-background/45"
+                        className="h-9 w-full justify-start border-0 px-0 text-sm hover:bg-transparent"
                       >
-                        <CalendarDays className="mr-2 h-4 w-4 text-muted-foreground" />
-                        <span className={cn(!task.due_at && 'text-muted-foreground')}>
+                        <CalendarDays className="mr-2 h-4 w-4 text-foreground/60" />
+                        <span className={cn(!task.due_at && 'text-foreground/65')}>
                           {formatTaskDumpDate(task.due_at)}
                         </span>
                       </Button>
@@ -1781,14 +1563,13 @@ function TaskDialog({
           </div>
         </div>
 
-        <div className="sticky bottom-0 z-20 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:hidden">
-          <div className="grid grid-cols-3 gap-2">
+        <div className="sticky bottom-0 z-20 border-t border-foreground/8 bg-background px-4 py-3 lg:hidden">
+          <div className="flex items-center gap-4">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="w-full">
-                  <Link2 className="mr-2 h-4 w-4" />
+                <button type="button" className="text-sm text-foreground/70 hover:text-foreground">
                   Links
-                </Button>
+                </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 {TASK_DUMP_QUICK_LINKS.map((link) => (
@@ -1799,14 +1580,12 @@ function TaskDialog({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-              <Paperclip className="mr-2 h-4 w-4" />
+            <button type="button" className="text-sm text-foreground/70 hover:text-foreground" onClick={() => fileInputRef.current?.click()}>
               Upload
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => onDeleteTask(task.id)}>
-              <Trash2 className="mr-2 h-4 w-4" />
+            </button>
+            <button type="button" className="text-sm text-foreground/70 hover:text-foreground" onClick={() => onDeleteTask(task.id)}>
               Delete
-            </Button>
+            </button>
           </div>
         </div>
 
@@ -1829,8 +1608,6 @@ function TaskDialog({
 }
 
 function ThoughtsPanel({
-  open,
-  onToggle,
   thoughts,
   quickThoughtText,
   onQuickThoughtChange,
@@ -1838,8 +1615,6 @@ function ThoughtsPanel({
   onOpenThought,
   onDeleteThought,
 }: {
-  open: boolean
-  onToggle: () => void
   thoughts: TaskDumpThought[]
   quickThoughtText: string
   onQuickThoughtChange: (value: string) => void
@@ -1848,93 +1623,78 @@ function ThoughtsPanel({
   onDeleteThought: (thoughtId: string) => void
 }) {
   return (
-    <div className={cn('transition-all duration-200', open ? 'w-full' : 'w-full xl:w-[40px]')}>
-      {open ? (
-        <div className="border-l-2 border-border/40 pl-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold tracking-tight text-foreground/90">Thoughts</h2>
-            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-muted-foreground" onClick={onToggle}>
-              <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+    <div className="w-full">
+      <div className="border-l border-foreground/20 pl-6">
+        <div className="mb-5 flex items-center justify-between">
+          <span className="text-xs font-medium uppercase tracking-[0.2em] text-foreground/85">Thoughts</span>
+        </div>
+        <div className="mb-3">
+          <Textarea
+            value={quickThoughtText}
+            onChange={(event) => onQuickThoughtChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault()
+                void onQuickThoughtCreate()
+              }
+            }}
+            placeholder="Drop a thought here..."
+            className="min-h-[60px] resize-none rounded-none border-0 bg-transparent px-0 text-sm shadow-none dark:bg-transparent placeholder:text-foreground/40 focus-visible:ring-0"
+          />
+        </div>
+        <button
+          type="button"
+          className="mb-6 inline-flex items-center gap-1.5 text-sm text-foreground/95 transition-colors hover:text-foreground disabled:opacity-60"
+          disabled={!quickThoughtText.trim()}
+          onClick={() => void onQuickThoughtCreate()}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          add thought
+        </button>
 
-          <div className="mb-4 flex gap-2">
-            <Textarea
-              value={quickThoughtText}
-              onChange={(event) => onQuickThoughtChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault()
-                  void onQuickThoughtCreate()
-                }
-              }}
-              placeholder="Drop a thought here..."
-              className="min-h-[60px] resize-none border-border/40 bg-transparent text-sm"
-            />
-          </div>
-          <Button
-            onClick={() => void onQuickThoughtCreate()}
-            disabled={!quickThoughtText.trim()}
-            variant="outline"
-            size="sm"
-            className="mb-5 w-full border-border/40 text-xs"
-          >
-            <Plus className="mr-1.5 h-3.5 w-3.5" />
-            Add Thought
-          </Button>
-
-          <div className="space-y-0">
-            {thoughts.map((thought, idx) => (
-              <div
-                key={thought.id}
-                onClick={() => onOpenThought(thought.id)}
-                className={cn(
-                  'group cursor-pointer px-1 py-3 transition-colors hover:bg-muted/20',
-                  idx > 0 && 'border-t border-border/25'
-                )}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-sm font-medium text-foreground/90">
-                      {thought.title || thought.content.split('\n')[0] || 'Untitled thought'}
-                    </h3>
-                    {thought.content && (
-                      <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground/80">
-                        {thought.content}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    className="mt-0.5 shrink-0 text-muted-foreground/40 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onDeleteThought(thought.id)
-                    }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+        <div className="space-y-0">
+          {thoughts.map((thought, idx) => (
+            <div
+              key={thought.id}
+              onClick={() => onOpenThought(thought.id)}
+              className={cn(
+                'group cursor-pointer py-3 transition-colors',
+                idx > 0 && 'border-t border-foreground/8'
+              )}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-sm text-foreground/80">
+                    {thought.title || thought.content.split('\n')[0] || 'Untitled thought'}
+                  </h3>
+                  {thought.content && (
+                    <p className="mt-0.5 line-clamp-2 text-xs text-foreground/60">
+                      {thought.content}
+                    </p>
+                  )}
                 </div>
-                <p className="mt-1 text-[10px] text-muted-foreground/50">
-                  {formatTaskDumpTimestamp(thought.updated_at)}
-                </p>
+                <button
+                  type="button"
+                  className="mt-0.5 shrink-0 text-foreground/0 transition-opacity hover:text-foreground/80 group-hover:text-foreground/45"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onDeleteThought(thought.id)
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
-            ))}
-
-            {thoughts.length === 0 && (
-              <p className="py-6 text-center text-xs text-muted-foreground/50">
-                No thoughts yet.
+              <p className="mt-1.5 text-[11px] text-foreground/55">
+                {formatTaskDumpTimestamp(thought.updated_at)}
               </p>
-            )}
-          </div>
+            </div>
+          ))}
+
+          {thoughts.length === 0 && (
+            <p className="py-6 text-center text-xs text-foreground/40">—</p>
+          )}
         </div>
-      ) : (
-        <div className="hidden h-full items-start justify-center border-l-2 border-border/30 pt-1 xl:flex">
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground/60" onClick={onToggle}>
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -1968,28 +1728,26 @@ function ThoughtDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="max-h-[88vh] overflow-hidden p-0 sm:max-w-3xl">
-        <DialogHeader className="border-b px-6 py-5">
+      <DialogContent showCloseButton={false} className="max-h-[88vh] overflow-hidden border border-foreground/28 bg-background p-0 shadow-none sm:max-w-3xl">
+        <DialogHeader className="border-b border-foreground/10 px-8 py-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <DialogTitle className="text-xl">Thought</DialogTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Created {formatTaskDumpTimestamp(thought.created_at)}. Updated {formatTaskDumpTimestamp(thought.updated_at)}.
+              <DialogTitle className="text-xl font-normal">Thought</DialogTitle>
+              <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-foreground/65">Created {formatTaskDumpTimestamp(thought.created_at)}</span>
+                <span className="text-foreground/30" aria-hidden="true">•</span>
+                <span className="text-foreground/25">Updated {formatTaskDumpTimestamp(thought.updated_at)}</span>
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => onDeleteThought(thought.id)}>
-              <Trash2 className="mr-2 h-4 w-4" />
-              Delete
-            </Button>
+            <button type="button" className="text-foreground/70 transition-colors hover:text-foreground" onClick={() => onDeleteThought(thought.id)}>
+              <Trash2 className="h-4 w-4" />
+            </button>
           </div>
         </DialogHeader>
 
-        <div className="max-h-[calc(88vh-84px)] overflow-y-auto px-6 py-5">
-          <div className="space-y-5">
+        <div className="max-h-[calc(88vh-84px)] overflow-y-auto px-8 py-6">
+          <div className="space-y-6">
             <div className="space-y-2">
-              <label className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Title
-              </label>
               <Input
                 value={thought.title ?? ''}
                 onChange={(event) => {
@@ -2000,14 +1758,12 @@ function ThoughtDialog({
                     { title: title || null }
                   )
                 }}
-                placeholder="Optional title"
+                placeholder="Title"
+                className="h-10 rounded-none border-0 bg-transparent px-0 text-base font-normal shadow-none dark:bg-transparent placeholder:text-foreground/60 focus-visible:ring-0"
               />
             </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Content
-              </label>
+            <div>
               <MarkdownComposer
                 value={thought.content}
                 onChange={(content) => {
@@ -2017,9 +1773,9 @@ function ThoughtDialog({
                     { content }
                   )
                 }}
-                placeholder="Drop a thought, note, idea, or AI-generated markdown here."
-                className="border-border/85 bg-black/60"
-                minHeightClassName="min-h-[260px]"
+                placeholder="Write here..."
+                className="border-0 bg-transparent"
+                minHeightClassName="min-h-[220px]"
                 toolbarVariant="inline"
               />
             </div>
@@ -2068,22 +1824,21 @@ function AttachmentSection({
   const [viewerAttachment, setViewerAttachment] = useState<TaskDumpAttachment | null>(null)
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+        <span className="text-xs font-medium uppercase tracking-[0.2em] text-foreground/80">{title}</span>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 text-sm text-foreground/85 transition-colors hover:text-foreground disabled:opacity-30"
           onClick={onUploadClick}
           disabled={busy}
         >
-          {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Paperclip className="mr-2 h-4 w-4" />}
-          Upload
-        </Button>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+          upload
+        </button>
       </div>
 
-      <div className="divide-y divide-border/35">
+      <div className="divide-y divide-foreground/8">
         {attachments.map((attachment) => (
           <AttachmentPreview
             key={attachment.id}
@@ -2093,9 +1848,7 @@ function AttachmentSection({
           />
         ))}
         {attachments.length === 0 && (
-          <div className="py-5 text-sm text-muted-foreground">
-            No attachments yet.
-          </div>
+          <p className="py-4 text-sm text-foreground/45">—</p>
         )}
       </div>
 
@@ -2120,9 +1873,9 @@ function AttachmentPreview({
   onDelete: () => void
 }) {
   return (
-    <div className="py-3">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 rounded-lg border border-border/70 p-2">
+    <div className="group py-3">
+      <div className="flex items-center gap-3">
+        <div className="text-foreground/60">
           {attachment.media_kind === 'image' ? (
             <FileImage className="h-4 w-4" />
           ) : attachment.media_kind === 'audio' ? (
@@ -2133,24 +1886,11 @@ function AttachmentPreview({
             <FileText className="h-4 w-4" />
           )}
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{attachment.file_name}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {attachment.mime_type || 'Unknown type'} {attachment.file_size ? `• ${Math.round(attachment.file_size / 1024)} KB` : ''}
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={onView}>
-                View
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onDelete}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
+        <p className="min-w-0 flex-1 truncate text-sm text-foreground/80">{attachment.file_name}</p>
+        <button type="button" className="text-sm text-foreground/55 transition-colors hover:text-foreground" onClick={onView}>view</button>
+        <button type="button" className="text-foreground/45 transition-colors hover:text-foreground" onClick={onDelete}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
     </div>
   )
@@ -2171,18 +1911,18 @@ function AttachmentViewerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-4xl">
-        <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle className="truncate pr-6 text-base">{attachment.file_name}</DialogTitle>
+      <DialogContent className="max-h-[88vh] overflow-hidden border border-foreground/28 bg-background p-0 shadow-none sm:max-w-4xl">
+        <DialogHeader className="border-b border-foreground/10 px-8 py-4">
+          <DialogTitle className="truncate pr-6 text-sm font-normal text-foreground/80">{attachment.file_name}</DialogTitle>
         </DialogHeader>
-        <div className="max-h-[calc(88vh-70px)] overflow-auto p-5">
+        <div className="max-h-[calc(88vh-70px)] overflow-auto p-8">
           {attachment.media_kind === 'image' && (
             <Image
               src={href}
               alt={attachment.file_name}
               width={1600}
               height={900}
-              className="h-auto max-h-[70vh] w-full rounded-xl border border-border/70 object-contain"
+              className="h-auto max-h-[70vh] w-full border border-border/70 object-contain"
               unoptimized
             />
           )}
@@ -2194,7 +1934,7 @@ function AttachmentViewerDialog({
           )}
 
           {attachment.media_kind === 'video' && (
-            <video controls className="max-h-[70vh] w-full rounded-xl border border-border/70">
+            <video controls className="max-h-[70vh] w-full border border-border/70">
               <source src={href} />
             </video>
           )}
@@ -2203,7 +1943,7 @@ function AttachmentViewerDialog({
             <iframe
               src={href}
               title={attachment.file_name}
-              className="h-[70vh] w-full rounded-xl border border-border/70 bg-background"
+              className="h-[70vh] w-full border border-border/70 bg-background"
             />
           )}
         </div>
