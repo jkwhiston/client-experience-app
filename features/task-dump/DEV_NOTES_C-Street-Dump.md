@@ -117,6 +117,94 @@ After editing this feature, run through:
 - `execCommand` path has been removed from the composer; current editor model is textarea-based.
 - If a future refactor reintroduces rich DOM editing, document the migration details here before merging.
 
+## Update Log - 2026-03-09 (Radical Minimal Pass)
+
+This section captures the latest redesign decisions now live on `main` and deployed to Vercel.
+
+### Route scope and visual language
+
+- Scope remains strictly `/c-street-dump`.
+- Theme for this route is forced via `html.cstreet-mono` and removed on unmount.
+- Monochrome tokens are route-specific overrides in `app/globals.css` using explicit black/white values.
+- Typography for this route:
+  - body: `"Avenir Next", Avenir, "Helvetica Neue", Helvetica, Arial, sans-serif`
+  - body weight: `400`
+  - heading weight: `500`
+
+### Core interaction model changes
+
+- Drag-and-drop has been fully removed from the task board.
+  - No `DndContext`, `useSortable`, `useDroppable`, or reorder API flow.
+  - No drag handles on cards.
+  - Status changes are expected to happen in task modal controls.
+- Do not reintroduce drag-drop without explicit product request.
+
+### Quick Dump control strip (current canonical behavior)
+
+- Quick dump row structure is intentionally:
+  - `Flag | Due | Formatting cluster` with attach icon pushed to far right.
+- Formatting icons are a single grouped cluster (no separators between each icon).
+- Attach action is icon-first and right-aligned; file count appears only when attachments exist.
+
+#### Flag selector specifics (easy to regress)
+
+- Trigger shows icon + `SelectValue`.
+- Chevron is hidden only for the trigger icon (`[&>svg]:hidden`), not all nested SVGs.
+- Display semantics:
+  - `none` value displays as `Flag`
+  - selected values display only `Low` / `Medium` / `High`
+- Priority color cue on quick-dump selector:
+  - text changes color by selected priority
+  - icon stays neutral
+- Dropdown options map `none` to label `Flag` in this control context.
+
+### Cards/columns status signaling
+
+- Column rails are ultra-thin pseudo-element hairlines (`before:w-px` + `before:scale-x-50`) with status color.
+- Per-card top status bars are removed.
+- Status at-a-glance now comes from:
+  - column rail color
+  - priority text color on cards
+
+### Thoughts panel behavior
+
+- Thoughts panel collapse/expand is removed for now.
+- Panel is always open in desktop layout.
+- Any previous `thoughtsOpen` toggle/collapse rail behavior is obsolete.
+
+### Modal readability decisions
+
+- Modal border contrast intentionally brighter than earlier passes:
+  - `border-foreground/28` on task/thought/attachment dialogs.
+- Header timestamp semantics are explicit and intentionally weighted:
+  - `Created ...` brighter (`text-foreground/65`)
+  - separator dot (`•`)
+  - `Updated ...` dimmer (`text-foreground/25`)
+- This labeling is present in both task and thought dialogs.
+
+### Composer surface decisions (still current)
+
+- `MarkdownComposer` remains `contentEditable`-based in this branch state.
+- Surfaces are borderless/transparent in task-dump contexts.
+- Inline toolbar retained for modal editors.
+- Quick dump uses `toolbarVariant="hidden"` and external formatting buttons.
+
+### Placeholder and microcopy decisions
+
+- Quick dump body placeholder is `Write a task...` (not `Drop a task here...`).
+- Quick dump due button label is `Due` (not `Due date`).
+- Thoughts quick input placeholder remains `Drop a thought here...`.
+
+### Agent guardrails for future edits
+
+- If touching quick-dump select/trigger classes, verify:
+  1. Flag icon remains visible.
+  2. Dropdown opens/closes reliably.
+  3. Trigger label does not duplicate (`Flag No flag` regression).
+  4. Separator spacing rhythm matches adjacent controls.
+- If touching modal header metadata, preserve explicit `Created` vs `Updated` labels unless requested otherwise.
+- Before merging future visual passes, smoke-test in both light and dark route modes because `cstreet-mono` overrides both.
+
 ## Update Log - 2026-03-08
 
 ### Performance fixes (modal typing choppiness)
