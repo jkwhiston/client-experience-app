@@ -85,10 +85,11 @@ function isContentEmpty(html: string): boolean {
 
 const UNCHECKED_ICON = '\u2610'
 const CHECKED_ICON = '\u2611'
+const EMPTY_CHECKBOX_TEXT_ANCHOR = '\u00a0'
 
 function newCheckboxHtml(): string {
   return (
-    `<div data-task-check="unchecked"><span data-check-toggle contenteditable="false">${UNCHECKED_ICON}</span>\u00a0\u00a0</div>`
+    `<div data-task-check="unchecked"><span data-check-toggle contenteditable="false">${UNCHECKED_ICON}</span><span data-check-text>${EMPTY_CHECKBOX_TEXT_ANCHOR}</span></div>`
   )
 }
 
@@ -96,6 +97,159 @@ function setRowCheckedState(row: HTMLElement, checked: boolean) {
   row.setAttribute('data-task-check', checked ? 'checked' : 'unchecked')
   const toggle = row.querySelector('[data-check-toggle]')
   if (toggle) toggle.textContent = checked ? CHECKED_ICON : UNCHECKED_ICON
+}
+
+function normalizeCheckboxTextSpans(container: HTMLElement): boolean {
+  const rows = container.querySelectorAll('[data-task-check]')
+  let changed = false
+
+  rows.forEach((rowNode) => {
+    const row = rowNode as HTMLElement
+    const toggle = row.querySelector('[data-check-toggle]') as HTMLElement | null
+    if (!toggle) return
+
+    const text = Array.from(row.childNodes)
+      .filter((node) => {
+        if (node.nodeType !== Node.ELEMENT_NODE) return true
+        const element = node as HTMLElement
+        return !element.hasAttribute('data-check-toggle')
+      })
+      .map((node) => node.textContent ?? '')
+      .join('')
+      .replace(/\u00a0/g, ' ')
+      .trim()
+
+    const existingTextSpan = row.querySelector('[data-check-text]') as HTMLElement | null
+    const existingText = (existingTextSpan?.textContent ?? '')
+      .replace(new RegExp(EMPTY_CHECKBOX_TEXT_ANCHOR, 'g'), '')
+      .replace(/\u00a0/g, ' ')
+      .trim()
+    const hasSingleToggle = row.querySelectorAll('[data-check-toggle]').length === 1
+    const hasSingleTextSpan = row.querySelectorAll('[data-check-text]').length === 1
+    const isAlreadyCanonical = hasSingleToggle && hasSingleTextSpan && existingText === text
+    if (isAlreadyCanonical) return
+
+    row.innerHTML = ''
+    toggle.setAttribute('contenteditable', 'false')
+    row.append(toggle)
+    const textSpan = document.createElement('span')
+    textSpan.setAttribute('data-check-text', '')
+    textSpan.textContent = text || EMPTY_CHECKBOX_TEXT_ANCHOR
+    row.append(textSpan)
+    changed = true
+  })
+
+  return changed
+}
+
+function getSelectionContainerElement(): HTMLElement | null {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return null
+  const node = selection.getRangeAt(0).startContainer
+  return node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement
+}
+
+function getCheckboxRowText(row: HTMLElement): string {
+  const textNode = row.querySelector('[data-check-text]') as HTMLElement | null
+  if (textNode) {
+    return (textNode.textContent ?? '')
+      .replace(new RegExp(EMPTY_CHECKBOX_TEXT_ANCHOR, 'g'), '')
+      .replace(/\u00a0/g, ' ')
+      .trim()
+  }
+  const clone = row.cloneNode(true) as HTMLElement
+  clone.querySelector('[data-check-toggle]')?.remove()
+  return (clone.textContent ?? '').replace(/\u00a0/g, ' ').trim()
+}
+
+function createCheckboxRowElement(text = ''): HTMLElement {
+  const row = document.createElement('div')
+  row.setAttribute('data-task-check', 'unchecked')
+  const toggle = document.createElement('span')
+  toggle.setAttribute('data-check-toggle', '')
+  toggle.setAttribute('contenteditable', 'false')
+  toggle.textContent = UNCHECKED_ICON
+  const textSpan = document.createElement('span')
+  textSpan.setAttribute('data-check-text', '')
+  textSpan.textContent = text || EMPTY_CHECKBOX_TEXT_ANCHOR
+  row.append(toggle, textSpan)
+  return row
+}
+
+function setCheckboxRowText(row: HTMLElement, text: string) {
+  const toggle = row.querySelector('[data-check-toggle]')
+  if (!toggle) return
+  row.innerHTML = ''
+  const textSpan = document.createElement('span')
+  textSpan.setAttribute('data-check-text', '')
+  textSpan.textContent = text || EMPTY_CHECKBOX_TEXT_ANCHOR
+  row.append(toggle, textSpan)
+}
+
+function placeCaretInCheckboxRow(row: HTMLElement, at: 'start' | 'end' = 'start') {
+  const selection = window.getSelection()
+  if (!selection) return
+
+  const range = document.createRange()
+  const textSpan = row.querySelector('[data-check-text]') as HTMLElement | null
+  const fallbackTarget = textSpan ?? row
+  if (textSpan && !textSpan.firstChild) {
+    textSpan.append(document.createTextNode(''))
+  }
+  const targetNode = textSpan?.firstChild ?? row.lastChild ?? fallbackTarget
+  const length = targetNode.nodeType === Node.TEXT_NODE
+    ? (targetNode.textContent?.length ?? 0)
+    : targetNode.childNodes.length
+
+  if (targetNode.nodeType === Node.TEXT_NODE) {
+    range.setStart(targetNode, at === 'end' ? length : 0)
+  } else {
+    range.selectNodeContents(targetNode)
+    range.collapse(at !== 'end')
+  }
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function splitPastedLines(text: string): string[] {
+  return text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/\u00a0/g, ' ').trim())
+    .filter(Boolean)
+}
+
+function isCaretAtStartOfCheckboxText(row: HTMLElement): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return false
+  const textSpan = row.querySelector('[data-check-text]') as HTMLElement | null
+  if (!textSpan) return false
+
+  const range = selection.getRangeAt(0)
+  if (!textSpan.contains(range.startContainer)) return false
+
+  const beforeRange = document.createRange()
+  beforeRange.selectNodeContents(textSpan)
+  beforeRange.setEnd(range.startContainer, range.startOffset)
+  const beforeText = beforeRange.toString().replace(new RegExp(EMPTY_CHECKBOX_TEXT_ANCHOR, 'g'), '')
+  return beforeText.length === 0
+}
+
+function createPlainEditableRow(): HTMLElement {
+  const row = document.createElement('div')
+  row.append(document.createElement('br'))
+  return row
+}
+
+function placeCaretInNodeStart(node: Node) {
+  const selection = window.getSelection()
+  if (!selection) return
+  const range = document.createRange()
+  range.selectNodeContents(node)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
 }
 
 function migrateOldCheckboxes(container: HTMLElement): boolean {
@@ -127,8 +281,9 @@ function migrateOldCheckboxes(container: HTMLElement): boolean {
     const state = wasChecked ? 'checked' : 'unchecked'
     const icon = wasChecked ? CHECKED_ICON : UNCHECKED_ICON
     wrapper.setAttribute('data-task-check', state)
+    const normalizedText = text.trim()
     wrapper.innerHTML =
-      `<span data-check-toggle contenteditable="false">${icon}</span>\u00a0\u00a0${text.trim()}`
+      `<span data-check-toggle contenteditable="false">${icon}</span><span data-check-text>${normalizedText || EMPTY_CHECKBOX_TEXT_ANCHOR}</span>`
   })
 
   return true
@@ -251,6 +406,10 @@ export function MarkdownComposer({
     if (editorMode === 'edit' && !isFocusedRef.current && editorRef.current) {
       if (editorRef.current.innerHTML !== value) {
         editorRef.current.innerHTML = value
+        if (normalizeCheckboxTextSpans(editorRef.current)) {
+          const normalizedCheckboxes = editorRef.current.innerHTML
+          onChangeRef.current(normalizedCheckboxes)
+        }
         if (linkifyUrlsInContainer(editorRef.current)) {
           const linked = editorRef.current.innerHTML
           onChangeRef.current(linked)
@@ -258,6 +417,10 @@ export function MarkdownComposer({
         if (migrateOldCheckboxes(editorRef.current)) {
           const migrated = editorRef.current.innerHTML
           onChangeRef.current(migrated)
+        }
+        if (normalizeCheckboxTextSpans(editorRef.current)) {
+          const normalizedCheckboxes = editorRef.current.innerHTML
+          onChangeRef.current(normalizedCheckboxes)
         }
       }
       setIsEmpty(isContentEmpty(value))
@@ -276,6 +439,15 @@ export function MarkdownComposer({
       onChangeRef.current(next)
     }
   }, [readValue])
+
+  const syncFromEditor = useCallback(() => {
+    const html = editorRef.current?.innerHTML ?? ''
+    const normalized = isContentEmpty(html) ? '' : html
+    setIsEmpty(isContentEmpty(normalized))
+    if (normalized !== valueRef.current) {
+      onChangeRef.current(normalized)
+    }
+  }, [])
 
   useEffect(() => {
     const editor = editorRef.current
@@ -300,35 +472,118 @@ export function MarkdownComposer({
 
     function handleMousedown(event: MouseEvent) {
       const target = event.target as HTMLElement
-      if (!target.hasAttribute('data-check-toggle')) return
+      const toggle = target.closest('[data-check-toggle]') as HTMLElement | null
+      if (!toggle) return
 
       event.preventDefault()
 
-      const row = target.closest('[data-task-check]') as HTMLElement | null
+      const row = toggle.closest('[data-task-check]') as HTMLElement | null
       if (!row) return
 
       const wasChecked = row.getAttribute('data-task-check') === 'checked'
       setRowCheckedState(row, !wasChecked)
+      placeCaretInCheckboxRow(row, 'end')
+      syncFromEditor()
+    }
 
-      requestAnimationFrame(() => {
-        const html = editor?.innerHTML ?? ''
-        const normalized = isContentEmpty(html) ? '' : html
-        setIsEmpty(isContentEmpty(normalized))
-        if (normalized !== valueRef.current) {
-          onChangeRef.current(normalized)
+    function handlePaste(event: ClipboardEvent) {
+      const rawText = event.clipboardData?.getData('text/plain') ?? ''
+      if (!rawText || !rawText.includes('\n')) return
+
+      const containerElement = getSelectionContainerElement()
+      const checkRow = containerElement?.closest?.('[data-task-check]') as HTMLElement | null
+      if (!checkRow) return
+
+      const lines = splitPastedLines(rawText)
+      if (lines.length <= 1) return
+
+      event.preventDefault()
+
+      let insertionAnchor = checkRow
+      const rowIsEmpty = !getCheckboxRowText(checkRow)
+      let startIndex = 0
+      if (rowIsEmpty) {
+        setCheckboxRowText(checkRow, lines[0])
+        insertionAnchor = checkRow
+        startIndex = 1
+      }
+
+      for (let index = startIndex; index < lines.length; index += 1) {
+        const nextRow = createCheckboxRowElement(lines[index])
+        insertionAnchor.after(nextRow)
+        insertionAnchor = nextRow
+      }
+
+      placeCaretInCheckboxRow(insertionAnchor, 'end')
+      syncFromEditor()
+    }
+
+    function handleKeydown(event: KeyboardEvent) {
+      const containerElement = getSelectionContainerElement()
+      const checkRow = containerElement?.closest?.('[data-task-check]') as HTMLElement | null
+      if (!checkRow) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+
+      if (event.key === 'Enter' && !event.shiftKey) {
+        if (isCaretAtStartOfCheckboxText(checkRow) && !checkRow.previousElementSibling) {
+          event.preventDefault()
+          const plainRow = createPlainEditableRow()
+          checkRow.before(plainRow)
+          placeCaretInNodeStart(plainRow)
+          syncFromEditor()
+          return
         }
-      })
+
+        event.preventDefault()
+        const newRow = createCheckboxRowElement('')
+        checkRow.after(newRow)
+        placeCaretInCheckboxRow(newRow, 'start')
+        syncFromEditor()
+      }
+
+      if (event.key === 'Backspace') {
+        const rowText = getCheckboxRowText(checkRow)
+        if (rowText) return
+        event.preventDefault()
+
+        const previousRow = checkRow.previousElementSibling as HTMLElement | null
+        const nextRow = checkRow.nextElementSibling as HTMLElement | null
+        checkRow.remove()
+
+        if (previousRow?.matches?.('[data-task-check]')) {
+          placeCaretInCheckboxRow(previousRow, 'end')
+        } else if (nextRow?.matches?.('[data-task-check]')) {
+          placeCaretInCheckboxRow(nextRow, 'start')
+        } else {
+          const fallbackRow = document.createElement('div')
+          fallbackRow.innerHTML = '<br>'
+          editor.append(fallbackRow)
+          const selection = window.getSelection()
+          if (selection) {
+            const range = document.createRange()
+            range.selectNodeContents(fallbackRow)
+            range.collapse(true)
+            selection.removeAllRanges()
+            selection.addRange(range)
+          }
+        }
+        syncFromEditor()
+      }
     }
 
     editor.addEventListener('copy', handleCopy)
     editor.addEventListener('click', handleClick)
     editor.addEventListener('mousedown', handleMousedown)
+    editor.addEventListener('paste', handlePaste)
+    editor.addEventListener('keydown', handleKeydown)
     return () => {
       editor.removeEventListener('copy', handleCopy)
       editor.removeEventListener('click', handleClick)
       editor.removeEventListener('mousedown', handleMousedown)
+      editor.removeEventListener('paste', handlePaste)
+      editor.removeEventListener('keydown', handleKeydown)
     }
-  }, [])
+  }, [syncFromEditor])
 
   function applyFormat(action: FormatAction) {
     if (editorMode === 'preview') return
@@ -424,18 +679,7 @@ export function MarkdownComposer({
                     const el = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement
                     const checkRow = el?.closest?.('[data-task-check]')
                     if (checkRow) {
-                      event.preventDefault()
-                      const template = document.createElement('div')
-                      template.innerHTML = newCheckboxHtml()
-                      const newRow = template.firstElementChild!
-                      checkRow.after(newRow)
-                      const sel2 = window.getSelection()!
-                      const r = document.createRange()
-                      r.setStartAfter(newRow.querySelector('[data-check-toggle]')!.nextSibling!)
-                      r.collapse(true)
-                      sel2.removeAllRanges()
-                      sel2.addRange(r)
-                      flushToParent()
+                      return
                     }
                   }
                 }

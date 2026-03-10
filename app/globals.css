@@ -251,11 +251,23 @@ html.cstreet-mono h6 {
 
 [contenteditable] [data-task-check] {
   margin: 4px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  list-style: none;
+  padding-left: 0;
 }
 
-[contenteditable] [data-task-check="checked"] {
+[contenteditable] [data-task-check="checked"] [data-check-text] {
   text-decoration: line-through;
   opacity: 0.4;
+}
+
+[contenteditable] [data-task-check] [data-check-text] {
+  display: inline-block;
+  min-width: 1ch;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 [contenteditable] [data-task-check] [data-check-toggle] {

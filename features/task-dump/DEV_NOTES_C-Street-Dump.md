@@ -158,6 +158,54 @@ After editing this feature, run through:
 - Workspace note editor placeholder is now `Write a note...`.
 - Placeholder is intentionally dimmer (`text-foreground/45`) to provide a clear but low-noise click target cue.
 
+## Update Log - 2026-03-10 (Checkbox UX Stabilization)
+
+### Checkbox paste behavior (context-only)
+
+- Multiline paste is now transformed into checkbox rows **only when cursor is inside an existing checkbox row**.
+- Behavior is intentionally scoped (does not globally convert paste outside checkbox context).
+- Primary workflow supported:
+  - create a single checkbox row
+  - paste a newline-separated list
+  - each non-empty pasted line becomes its own checkbox row.
+
+### Checkbox editing continuity
+
+- `Enter` inside a checkbox row now reliably inserts the next checkbox row directly below.
+- `Backspace` on an empty checkbox row now removes that row cleanly and places caret in a sensible adjacent position.
+- If no adjacent checkbox row exists after removal, editor falls back to a standard empty editable row.
+
+### Checkbox toggle reliability
+
+- Toggle click targeting now uses nearest `[data-check-toggle]` instead of strict direct-target matching.
+- This prevents missed toggles caused by small click-target variance.
+- Toggle now preserves typing flow by restoring caret to checkbox row and syncing editor value immediately.
+
+## Update Log - 2026-03-10 (Checkbox Row Normalization)
+
+### Canonical checkbox row contract
+
+- All checkbox rows are normalized to one DOM shape:
+  - container with `data-task-check`
+  - one toggle icon span: `data-check-toggle`
+  - one text span: `data-check-text`
+- Normalization now runs after migrations and when loading existing editor HTML to prevent first-row vs later-row drift.
+
+### Spacing + strike behavior
+
+- Checkbox icon/text spacing is now layout-driven in CSS (`display:flex` + `gap`) instead of depending on embedded NBSP text.
+- Checked state styling is now text-only:
+  - strike + dim on `data-check-text`
+  - toggle icon remains unstruck and visually stable.
+
+### Why this matters
+
+- First inserted checkbox item and subsequent items (Enter/paste-generated) now render with the same gap and strike behavior.
+- Future edits should preserve this contract and avoid reintroducing content-based spacing.
+- Enter behavior at top-of-list is intentionally special-cased:
+  - If caret is at the very start of the first checkbox row, pressing `Enter` inserts a plain editable line **above** the checkbox list.
+  - This preserves ability to add intro text before an existing checkbox list without breaking list semantics.
+
 ## Update Log - 2026-03-09 (Radical Minimal Pass)
 
 This section captures the latest redesign decisions now live on `main` and deployed to Vercel.

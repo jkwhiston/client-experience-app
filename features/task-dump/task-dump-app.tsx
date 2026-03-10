@@ -152,7 +152,7 @@ const QUICK_DUMP_FORMAT_ITEMS: {
 ]
 
 function newQuickDumpCheckboxHtml(): string {
-  return `<div data-task-check="unchecked"><span data-check-toggle contenteditable="false">\u2610</span>\u00a0\u00a0</div>`
+  return `<div data-task-check="unchecked"><span data-check-toggle contenteditable="false">\u2610</span><span data-check-text>\u00a0</span></div>`
 }
 
 function DumpTruckDumpingIcon({ className }: { className?: string }) {
