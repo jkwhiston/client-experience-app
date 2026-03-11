@@ -12,6 +12,10 @@ import {
   Underline,
 } from 'lucide-react'
 import { marked } from 'marked'
+import {
+  buildLoomEmbedHtml,
+  parseLoomUrl,
+} from '@/features/task-dump/loom-embed'
 import { cn } from '@/lib/utils'
 
 interface MarkdownComposerProps {
@@ -344,7 +348,7 @@ function linkifyUrlsInContainer(container: HTMLElement): boolean {
   for (const node of textNodes) {
     const parentElement = node.parentElement
     if (!parentElement) continue
-    if (parentElement.closest('a,code,pre,script,style,[data-check-toggle]')) continue
+    if (parentElement.closest('a,code,pre,script,style,[data-check-toggle],[data-loom-embed]')) continue
 
     const text = node.nodeValue ?? ''
     if (!URL_PATTERN.test(text)) continue
@@ -374,6 +378,146 @@ function linkifyUrlsInContainer(container: HTMLElement): boolean {
   }
 
   return changed
+}
+
+function getTopLevelSelectionElement(
+  editor: HTMLElement,
+  node: Node | null
+): HTMLElement | null {
+  if (!node) return null
+  if (node === editor) return editor
+
+  let current =
+    node.nodeType === Node.ELEMENT_NODE
+      ? (node as HTMLElement)
+      : node.parentElement
+
+  while (current && current.parentElement !== editor) {
+    current = current.parentElement
+  }
+
+  return current
+}
+
+function isEditableRowEmpty(row: HTMLElement): boolean {
+  if (row.matches('[data-task-check]')) {
+    return !getCheckboxRowText(row)
+  }
+
+  if (row.matches('[data-loom-embed]')) return false
+
+  const clone = row.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('[data-loom-embed]').forEach((element) => element.remove())
+  const text = (clone.textContent ?? '').replace(/\u00a0/g, ' ').trim()
+  const hasStructuredContent = Boolean(
+    clone.querySelector('img,iframe,video,audio,hr,ul,ol,li,table,blockquote,pre,code')
+  )
+
+  return !text && !hasStructuredContent
+}
+
+function isCaretAtEndOfCheckboxText(row: HTMLElement): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return false
+  const textSpan = row.querySelector('[data-check-text]') as HTMLElement | null
+  if (!textSpan) return false
+
+  const range = selection.getRangeAt(0)
+  if (!textSpan.contains(range.startContainer)) return false
+
+  const afterRange = document.createRange()
+  afterRange.selectNodeContents(textSpan)
+  afterRange.setStart(range.startContainer, range.startOffset)
+  const afterText = afterRange.toString().replace(new RegExp(EMPTY_CHECKBOX_TEXT_ANCHOR, 'g'), '')
+  return afterText.length === 0
+}
+
+function isCaretAtStartOfElement(element: HTMLElement): boolean {
+  if (element.matches('[data-task-check]')) {
+    return isCaretAtStartOfCheckboxText(element)
+  }
+
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return false
+  const range = selection.getRangeAt(0)
+  if (!element.contains(range.startContainer)) return false
+
+  const beforeRange = document.createRange()
+  beforeRange.selectNodeContents(element)
+  beforeRange.setEnd(range.startContainer, range.startOffset)
+  return beforeRange.toString().replace(/\u00a0/g, ' ').trim().length === 0
+}
+
+function isCaretAtEndOfElement(element: HTMLElement): boolean {
+  if (element.matches('[data-task-check]')) {
+    return isCaretAtEndOfCheckboxText(element)
+  }
+
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return false
+  const range = selection.getRangeAt(0)
+  if (!element.contains(range.startContainer)) return false
+
+  const afterRange = document.createRange()
+  afterRange.selectNodeContents(element)
+  afterRange.setStart(range.startContainer, range.startOffset)
+  return afterRange.toString().replace(/\u00a0/g, ' ').trim().length === 0
+}
+
+function getAdjacentLoomEmbed(
+  editor: HTMLElement,
+  direction: 'backward' | 'forward'
+): HTMLElement | null {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return null
+
+  const currentRow = getTopLevelSelectionElement(editor, selection.getRangeAt(0).startContainer)
+  if (!currentRow || currentRow === editor || currentRow.matches('[data-loom-embed]')) return null
+
+  const isAdjacent =
+    direction === 'backward'
+      ? isCaretAtStartOfElement(currentRow)
+      : isCaretAtEndOfElement(currentRow)
+  if (!isAdjacent) return null
+
+  const candidate =
+    direction === 'backward'
+      ? currentRow.previousElementSibling
+      : currentRow.nextElementSibling
+
+  return candidate instanceof HTMLElement && candidate.matches('[data-loom-embed]')
+    ? candidate
+    : null
+}
+
+function insertLoomEmbedAtSelection(editor: HTMLElement, embedHtml: string): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return false
+
+  const range = selection.getRangeAt(0)
+  const currentRow = getTopLevelSelectionElement(editor, range.startContainer)
+  const canReplaceCurrentRow =
+    currentRow && currentRow !== editor && isEditableRowEmpty(currentRow)
+
+  if (!canReplaceCurrentRow && !(currentRow === editor && isContentEmpty(editor.innerHTML))) {
+    return false
+  }
+
+  const wrapper = document.createElement('div')
+  wrapper.innerHTML = embedHtml
+  const embed = wrapper.firstElementChild
+  if (!(embed instanceof HTMLElement)) return false
+
+  const trailingRow = createPlainEditableRow()
+
+  if (canReplaceCurrentRow && currentRow) {
+    currentRow.replaceWith(embed, trailingRow)
+  } else {
+    editor.replaceChildren(embed, trailingRow)
+  }
+
+  placeCaretInNodeStart(trailingRow)
+  return true
 }
 
 export function MarkdownComposer({
@@ -488,7 +632,21 @@ export function MarkdownComposer({
 
     function handlePaste(event: ClipboardEvent) {
       const rawText = event.clipboardData?.getData('text/plain') ?? ''
-      if (!rawText || !rawText.includes('\n')) return
+      if (!rawText) return
+
+      const editorNode = editorRef.current
+      const trimmedText = rawText.trim()
+      const loomMatch = trimmedText && !trimmedText.includes('\n') ? parseLoomUrl(trimmedText) : null
+      if (editorNode && loomMatch) {
+        const didInsert = insertLoomEmbedAtSelection(editorNode, buildLoomEmbedHtml(loomMatch))
+        if (didInsert) {
+          event.preventDefault()
+          syncFromEditor()
+          return
+        }
+      }
+
+      if (!rawText.includes('\n')) return
 
       const containerElement = getSelectionContainerElement()
       const checkRow = containerElement?.closest?.('[data-task-check]') as HTMLElement | null
@@ -519,6 +677,29 @@ export function MarkdownComposer({
     }
 
     function handleKeydown(event: KeyboardEvent) {
+      const editorNode = editorRef.current
+      if (editorNode) {
+        if (event.key === 'Backspace') {
+          const previousEmbed = getAdjacentLoomEmbed(editorNode, 'backward')
+          if (previousEmbed) {
+            event.preventDefault()
+            previousEmbed.remove()
+            syncFromEditor()
+            return
+          }
+        }
+
+        if (event.key === 'Delete') {
+          const nextEmbed = getAdjacentLoomEmbed(editorNode, 'forward')
+          if (nextEmbed) {
+            event.preventDefault()
+            nextEmbed.remove()
+            syncFromEditor()
+            return
+          }
+        }
+      }
+
       const containerElement = getSelectionContainerElement()
       const checkRow = containerElement?.closest?.('[data-task-check]') as HTMLElement | null
       if (!checkRow) return

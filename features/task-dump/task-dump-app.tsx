@@ -100,6 +100,7 @@ import {
   type TaskDumpWorkspaceBlock,
 } from '@/lib/task-dump-types'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { stripLoomEmbedsFromHtml } from '@/features/task-dump/loom-embed'
 import { MarkdownComposer } from '@/features/task-dump/markdown-composer'
 
 const DEFAULT_SNAPSHOT: TaskDumpSnapshot = {
@@ -223,7 +224,7 @@ function getPriorityClass(flag: TaskDumpPriorityFlag): string {
 }
 
 function stripHtmlToText(html: string): string {
-  return html
+  return stripLoomEmbedsFromHtml(html)
     .replace(/<br\s*\/?>/gi, ' ')
     .replace(/<\/(?:div|p|li|h[1-6])>/gi, ' ')
     .replace(/<\/?[^>]+>/g, '')
