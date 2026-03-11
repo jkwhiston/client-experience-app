@@ -4,14 +4,22 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Bold,
   Eye,
+  Expand,
   Italic,
   List,
   ListChecks,
   ListOrdered,
+  Maximize2,
+  Minimize2,
   Minus,
   Underline,
 } from 'lucide-react'
 import { marked } from 'marked'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import {
+  buildLoomEmbedHtml,
+  parseLoomUrl,
+} from '@/features/task-dump/loom-embed'
 import { cn } from '@/lib/utils'
 
 interface MarkdownComposerProps {
@@ -38,6 +46,10 @@ type FormatAction =
   | 'divider'
 
 type EditorMode = 'edit' | 'preview'
+type LoomModalState = {
+  embedUrl: string
+  originalUrl: string
+}
 
 const FORMAT_ITEMS: {
   action: FormatAction
@@ -344,7 +356,7 @@ function linkifyUrlsInContainer(container: HTMLElement): boolean {
   for (const node of textNodes) {
     const parentElement = node.parentElement
     if (!parentElement) continue
-    if (parentElement.closest('a,code,pre,script,style,[data-check-toggle]')) continue
+    if (parentElement.closest('a,code,pre,script,style,[data-check-toggle],[data-loom-embed]')) continue
 
     const text = node.nodeValue ?? ''
     if (!URL_PATTERN.test(text)) continue
@@ -376,6 +388,146 @@ function linkifyUrlsInContainer(container: HTMLElement): boolean {
   return changed
 }
 
+function getTopLevelSelectionElement(
+  editor: HTMLElement,
+  node: Node | null
+): HTMLElement | null {
+  if (!node) return null
+  if (node === editor) return editor
+
+  let current =
+    node.nodeType === Node.ELEMENT_NODE
+      ? (node as HTMLElement)
+      : node.parentElement
+
+  while (current && current.parentElement !== editor) {
+    current = current.parentElement
+  }
+
+  return current
+}
+
+function isEditableRowEmpty(row: HTMLElement): boolean {
+  if (row.matches('[data-task-check]')) {
+    return !getCheckboxRowText(row)
+  }
+
+  if (row.matches('[data-loom-embed]')) return false
+
+  const clone = row.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('[data-loom-embed]').forEach((element) => element.remove())
+  const text = (clone.textContent ?? '').replace(/\u00a0/g, ' ').trim()
+  const hasStructuredContent = Boolean(
+    clone.querySelector('img,iframe,video,audio,hr,ul,ol,li,table,blockquote,pre,code')
+  )
+
+  return !text && !hasStructuredContent
+}
+
+function isCaretAtEndOfCheckboxText(row: HTMLElement): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return false
+  const textSpan = row.querySelector('[data-check-text]') as HTMLElement | null
+  if (!textSpan) return false
+
+  const range = selection.getRangeAt(0)
+  if (!textSpan.contains(range.startContainer)) return false
+
+  const afterRange = document.createRange()
+  afterRange.selectNodeContents(textSpan)
+  afterRange.setStart(range.startContainer, range.startOffset)
+  const afterText = afterRange.toString().replace(new RegExp(EMPTY_CHECKBOX_TEXT_ANCHOR, 'g'), '')
+  return afterText.length === 0
+}
+
+function isCaretAtStartOfElement(element: HTMLElement): boolean {
+  if (element.matches('[data-task-check]')) {
+    return isCaretAtStartOfCheckboxText(element)
+  }
+
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return false
+  const range = selection.getRangeAt(0)
+  if (!element.contains(range.startContainer)) return false
+
+  const beforeRange = document.createRange()
+  beforeRange.selectNodeContents(element)
+  beforeRange.setEnd(range.startContainer, range.startOffset)
+  return beforeRange.toString().replace(/\u00a0/g, ' ').trim().length === 0
+}
+
+function isCaretAtEndOfElement(element: HTMLElement): boolean {
+  if (element.matches('[data-task-check]')) {
+    return isCaretAtEndOfCheckboxText(element)
+  }
+
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return false
+  const range = selection.getRangeAt(0)
+  if (!element.contains(range.startContainer)) return false
+
+  const afterRange = document.createRange()
+  afterRange.selectNodeContents(element)
+  afterRange.setStart(range.startContainer, range.startOffset)
+  return afterRange.toString().replace(/\u00a0/g, ' ').trim().length === 0
+}
+
+function getAdjacentLoomEmbed(
+  editor: HTMLElement,
+  direction: 'backward' | 'forward'
+): HTMLElement | null {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return null
+
+  const currentRow = getTopLevelSelectionElement(editor, selection.getRangeAt(0).startContainer)
+  if (!currentRow || currentRow === editor || currentRow.matches('[data-loom-embed]')) return null
+
+  const isAdjacent =
+    direction === 'backward'
+      ? isCaretAtStartOfElement(currentRow)
+      : isCaretAtEndOfElement(currentRow)
+  if (!isAdjacent) return null
+
+  const candidate =
+    direction === 'backward'
+      ? currentRow.previousElementSibling
+      : currentRow.nextElementSibling
+
+  return candidate instanceof HTMLElement && candidate.matches('[data-loom-embed]')
+    ? candidate
+    : null
+}
+
+function insertLoomEmbedAtSelection(editor: HTMLElement, embedHtml: string): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return false
+
+  const range = selection.getRangeAt(0)
+  const currentRow = getTopLevelSelectionElement(editor, range.startContainer)
+  const canReplaceCurrentRow =
+    currentRow && currentRow !== editor && isEditableRowEmpty(currentRow)
+
+  if (!canReplaceCurrentRow && !(currentRow === editor && isContentEmpty(editor.innerHTML))) {
+    return false
+  }
+
+  const wrapper = document.createElement('div')
+  wrapper.innerHTML = embedHtml
+  const embed = wrapper.firstElementChild
+  if (!(embed instanceof HTMLElement)) return false
+
+  const trailingRow = createPlainEditableRow()
+
+  if (canReplaceCurrentRow && currentRow) {
+    currentRow.replaceWith(embed, trailingRow)
+  } else {
+    editor.replaceChildren(embed, trailingRow)
+  }
+
+  placeCaretInNodeStart(trailingRow)
+  return true
+}
+
 export function MarkdownComposer({
   value,
   onChange,
@@ -401,6 +553,9 @@ export function MarkdownComposer({
   const [editorMode, setEditorMode] = useState<EditorMode>('edit')
   const [previewHtml, setPreviewHtml] = useState('')
   const [isEmpty, setIsEmpty] = useState(() => isContentEmpty(value))
+  const [loomModal, setLoomModal] = useState<LoomModalState | null>(null)
+  const [isLoomFullscreen, setIsLoomFullscreen] = useState(false)
+  const loomFullscreenRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (editorMode === 'edit' && !isFocusedRef.current && editorRef.current) {
@@ -427,6 +582,18 @@ export function MarkdownComposer({
     }
   }, [value, editorMode])
 
+  useEffect(() => {
+    function handleFullscreenChange() {
+      const mediaContainer = loomFullscreenRef.current
+      setIsLoomFullscreen(Boolean(mediaContainer && document.fullscreenElement === mediaContainer))
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
+  }, [])
+
   const readValue = useCallback((): string => {
     const html = editorRef.current?.innerHTML ?? valueRef.current
     return isContentEmpty(html) ? '' : html
@@ -449,6 +616,29 @@ export function MarkdownComposer({
     }
   }, [])
 
+  const toggleLoomFullscreen = useCallback(async () => {
+    const mediaContainer = loomFullscreenRef.current
+    if (!mediaContainer) return
+
+    try {
+      if (document.fullscreenElement === mediaContainer) {
+        await document.exitFullscreen()
+      } else {
+        await mediaContainer.requestFullscreen()
+      }
+    } catch {
+      // Ignore fullscreen errors caused by browser policy.
+    }
+  }, [])
+
+  const closeLoomModal = useCallback(() => {
+    if (document.fullscreenElement === loomFullscreenRef.current) {
+      void document.exitFullscreen()
+    }
+    setLoomModal(null)
+    setIsLoomFullscreen(false)
+  }, [])
+
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
@@ -464,6 +654,19 @@ export function MarkdownComposer({
 
     function handleClick(event: MouseEvent) {
       const target = event.target as HTMLElement
+      const expandButton = target.closest('[data-loom-expand]') as HTMLElement | null
+      if (expandButton) {
+        event.preventDefault()
+        const embed = expandButton.closest('[data-loom-embed="video"]') as HTMLElement | null
+        if (!embed) return
+        const iframe = embed.querySelector('iframe') as HTMLIFrameElement | null
+        const embedUrl = iframe?.src?.trim()
+        if (!embedUrl) return
+        const originalUrl = embed.getAttribute('data-loom-url')?.trim() || embedUrl
+        setLoomModal({ embedUrl, originalUrl })
+        return
+      }
+
       const anchor = target.closest('a[href]') as HTMLAnchorElement | null
       if (!anchor) return
       event.preventDefault()
@@ -488,7 +691,21 @@ export function MarkdownComposer({
 
     function handlePaste(event: ClipboardEvent) {
       const rawText = event.clipboardData?.getData('text/plain') ?? ''
-      if (!rawText || !rawText.includes('\n')) return
+      if (!rawText) return
+
+      const editorNode = editorRef.current
+      const trimmedText = rawText.trim()
+      const loomMatch = trimmedText && !trimmedText.includes('\n') ? parseLoomUrl(trimmedText) : null
+      if (editorNode && loomMatch) {
+        const didInsert = insertLoomEmbedAtSelection(editorNode, buildLoomEmbedHtml(loomMatch))
+        if (didInsert) {
+          event.preventDefault()
+          syncFromEditor()
+          return
+        }
+      }
+
+      if (!rawText.includes('\n')) return
 
       const containerElement = getSelectionContainerElement()
       const checkRow = containerElement?.closest?.('[data-task-check]') as HTMLElement | null
@@ -519,6 +736,29 @@ export function MarkdownComposer({
     }
 
     function handleKeydown(event: KeyboardEvent) {
+      const editorNode = editorRef.current
+      if (editorNode) {
+        if (event.key === 'Backspace') {
+          const previousEmbed = getAdjacentLoomEmbed(editorNode, 'backward')
+          if (previousEmbed) {
+            event.preventDefault()
+            previousEmbed.remove()
+            syncFromEditor()
+            return
+          }
+        }
+
+        if (event.key === 'Delete') {
+          const nextEmbed = getAdjacentLoomEmbed(editorNode, 'forward')
+          if (nextEmbed) {
+            event.preventDefault()
+            nextEmbed.remove()
+            syncFromEditor()
+            return
+          }
+        }
+      }
+
       const containerElement = getSelectionContainerElement()
       const checkRow = containerElement?.closest?.('[data-task-check]') as HTMLElement | null
       if (!checkRow) return
@@ -640,7 +880,8 @@ export function MarkdownComposer({
   ].join(' ')
 
   return (
-    <div className="relative">
+    <>
+      <div className="relative">
       <div
         className={cn(
           'rounded-none border-0 bg-transparent transition-colors',
@@ -770,6 +1011,74 @@ export function MarkdownComposer({
           </div>
         </div>
       )}
-    </div>
+      </div>
+
+      <Dialog
+        open={Boolean(loomModal)}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeLoomModal()
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="!h-[92vh] !w-[94vw] !max-w-[94vw] overflow-hidden border border-foreground/30 bg-background p-0 shadow-none"
+        >
+          <DialogTitle className="sr-only">Loom player</DialogTitle>
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex items-center justify-between border-b border-foreground/10 px-4 py-3">
+              <span className="text-xs font-medium uppercase tracking-[0.2em] text-foreground/60">Loom</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { void toggleLoomFullscreen() }}
+                  className="inline-flex h-8 items-center gap-1.5 px-2 text-xs text-foreground/75 transition-colors hover:text-foreground"
+                >
+                  {isLoomFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                  {isLoomFullscreen ? 'Exit full screen' : 'Full screen'}
+                </button>
+                {loomModal && (
+                  <button
+                    type="button"
+                    onClick={() => window.open(loomModal.originalUrl, '_blank', 'noopener,noreferrer')}
+                    className="inline-flex h-8 items-center gap-1.5 px-2 text-xs text-primary underline transition-colors hover:text-primary/80"
+                  >
+                    <Expand className="h-3.5 w-3.5" />
+                    Open in Loom
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={closeLoomModal}
+                  className="inline-flex h-8 items-center px-2 text-xs text-foreground/75 transition-colors hover:text-foreground"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 p-3">
+              <div className="flex h-full items-center justify-center">
+                <div
+                  ref={loomFullscreenRef}
+                  className="w-full max-h-full overflow-hidden rounded border border-foreground/10 bg-black"
+                  style={{ aspectRatio: '16 / 9' }}
+                >
+                {loomModal && (
+                  <iframe
+                    src={loomModal.embedUrl}
+                    title="Loom video player"
+                    className="h-full w-full border-0"
+                    allow="autoplay; fullscreen; picture-in-picture"
+                    allowFullScreen
+                  />
+                )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
