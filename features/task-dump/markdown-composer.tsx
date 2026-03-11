@@ -4,14 +4,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Bold,
   Eye,
+  Expand,
   Italic,
   List,
   ListChecks,
   ListOrdered,
+  Maximize2,
+  Minimize2,
   Minus,
   Underline,
 } from 'lucide-react'
 import { marked } from 'marked'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import {
   buildLoomEmbedHtml,
   parseLoomUrl,
@@ -42,6 +46,10 @@ type FormatAction =
   | 'divider'
 
 type EditorMode = 'edit' | 'preview'
+type LoomModalState = {
+  embedUrl: string
+  originalUrl: string
+}
 
 const FORMAT_ITEMS: {
   action: FormatAction
@@ -545,6 +553,9 @@ export function MarkdownComposer({
   const [editorMode, setEditorMode] = useState<EditorMode>('edit')
   const [previewHtml, setPreviewHtml] = useState('')
   const [isEmpty, setIsEmpty] = useState(() => isContentEmpty(value))
+  const [loomModal, setLoomModal] = useState<LoomModalState | null>(null)
+  const [isLoomFullscreen, setIsLoomFullscreen] = useState(false)
+  const loomFullscreenRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (editorMode === 'edit' && !isFocusedRef.current && editorRef.current) {
@@ -571,6 +582,18 @@ export function MarkdownComposer({
     }
   }, [value, editorMode])
 
+  useEffect(() => {
+    function handleFullscreenChange() {
+      const mediaContainer = loomFullscreenRef.current
+      setIsLoomFullscreen(Boolean(mediaContainer && document.fullscreenElement === mediaContainer))
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    }
+  }, [])
+
   const readValue = useCallback((): string => {
     const html = editorRef.current?.innerHTML ?? valueRef.current
     return isContentEmpty(html) ? '' : html
@@ -593,6 +616,29 @@ export function MarkdownComposer({
     }
   }, [])
 
+  const toggleLoomFullscreen = useCallback(async () => {
+    const mediaContainer = loomFullscreenRef.current
+    if (!mediaContainer) return
+
+    try {
+      if (document.fullscreenElement === mediaContainer) {
+        await document.exitFullscreen()
+      } else {
+        await mediaContainer.requestFullscreen()
+      }
+    } catch {
+      // Ignore fullscreen errors caused by browser policy.
+    }
+  }, [])
+
+  const closeLoomModal = useCallback(() => {
+    if (document.fullscreenElement === loomFullscreenRef.current) {
+      void document.exitFullscreen()
+    }
+    setLoomModal(null)
+    setIsLoomFullscreen(false)
+  }, [])
+
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
@@ -608,6 +654,19 @@ export function MarkdownComposer({
 
     function handleClick(event: MouseEvent) {
       const target = event.target as HTMLElement
+      const expandButton = target.closest('[data-loom-expand]') as HTMLElement | null
+      if (expandButton) {
+        event.preventDefault()
+        const embed = expandButton.closest('[data-loom-embed="video"]') as HTMLElement | null
+        if (!embed) return
+        const iframe = embed.querySelector('iframe') as HTMLIFrameElement | null
+        const embedUrl = iframe?.src?.trim()
+        if (!embedUrl) return
+        const originalUrl = embed.getAttribute('data-loom-url')?.trim() || embedUrl
+        setLoomModal({ embedUrl, originalUrl })
+        return
+      }
+
       const anchor = target.closest('a[href]') as HTMLAnchorElement | null
       if (!anchor) return
       event.preventDefault()
@@ -821,7 +880,8 @@ export function MarkdownComposer({
   ].join(' ')
 
   return (
-    <div className="relative">
+    <>
+      <div className="relative">
       <div
         className={cn(
           'rounded-none border-0 bg-transparent transition-colors',
@@ -951,6 +1011,74 @@ export function MarkdownComposer({
           </div>
         </div>
       )}
-    </div>
+      </div>
+
+      <Dialog
+        open={Boolean(loomModal)}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeLoomModal()
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="!h-[92vh] !w-[94vw] !max-w-[94vw] overflow-hidden border border-foreground/30 bg-background p-0 shadow-none"
+        >
+          <DialogTitle className="sr-only">Loom player</DialogTitle>
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="flex items-center justify-between border-b border-foreground/10 px-4 py-3">
+              <span className="text-xs font-medium uppercase tracking-[0.2em] text-foreground/60">Loom</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { void toggleLoomFullscreen() }}
+                  className="inline-flex h-8 items-center gap-1.5 px-2 text-xs text-foreground/75 transition-colors hover:text-foreground"
+                >
+                  {isLoomFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                  {isLoomFullscreen ? 'Exit full screen' : 'Full screen'}
+                </button>
+                {loomModal && (
+                  <button
+                    type="button"
+                    onClick={() => window.open(loomModal.originalUrl, '_blank', 'noopener,noreferrer')}
+                    className="inline-flex h-8 items-center gap-1.5 px-2 text-xs text-primary underline transition-colors hover:text-primary/80"
+                  >
+                    <Expand className="h-3.5 w-3.5" />
+                    Open in Loom
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={closeLoomModal}
+                  className="inline-flex h-8 items-center px-2 text-xs text-foreground/75 transition-colors hover:text-foreground"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 p-3">
+              <div className="flex h-full items-center justify-center">
+                <div
+                  ref={loomFullscreenRef}
+                  className="w-full max-h-full overflow-hidden rounded border border-foreground/10 bg-black"
+                  style={{ aspectRatio: '16 / 9' }}
+                >
+                {loomModal && (
+                  <iframe
+                    src={loomModal.embedUrl}
+                    title="Loom video player"
+                    className="h-full w-full border-0"
+                    allow="autoplay; fullscreen; picture-in-picture"
+                    allowFullScreen
+                  />
+                )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
