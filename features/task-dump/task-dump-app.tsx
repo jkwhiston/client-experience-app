@@ -900,7 +900,7 @@ export function TaskDumpApp() {
             <h1 className="text-xl font-semibold tracking-tight">C-Street Dump</h1>
             <p className="text-sm text-muted-foreground">{error}</p>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={load}>
+              <Button variant="outline" onClick={() => void load()}>
                 <RefreshCcw className="mr-2 h-4 w-4" />
                 Retry
               </Button>
