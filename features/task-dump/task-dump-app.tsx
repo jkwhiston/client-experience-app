@@ -65,6 +65,7 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
 import {
   createTaskDumpBlock,
   createTaskDumpTask,
@@ -401,6 +402,7 @@ const TASK_DUMP_MODAL_SURFACE_STYLES: Record<
 
 export function TaskDumpApp() {
   const router = useRouter()
+  const supabase = useMemo(() => createClient(), [])
   const [snapshot, setSnapshot] = useState<TaskDumpSnapshot>(DEFAULT_SNAPSHOT)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -409,6 +411,7 @@ export function TaskDumpApp() {
   const [quickTaskPriority, setQuickTaskPriority] = useState<TaskDumpPriorityFlag>('none')
   const [quickTaskDueAt, setQuickTaskDueAt] = useState<string | null>(null)
   const [quickTaskFiles, setQuickTaskFiles] = useState<File[]>([])
+  const [quickTaskComposerResetKey, setQuickTaskComposerResetKey] = useState(0)
   const quickTaskFileInputRef = useRef<HTMLInputElement>(null)
   const quickDumpEditorWrapRef = useRef<HTMLDivElement>(null)
   const [quickThoughtText, setQuickThoughtText] = useState('')
@@ -425,24 +428,108 @@ export function TaskDumpApp() {
   const blockTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const blockPayloadRef = useRef(new Map<string, BlockSavePayload>())
   const blockSaveVersionRef = useRef(new Map<string, number>())
+  const liveReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     document.documentElement.classList.add('cstreet-mono')
     return () => { document.documentElement.classList.remove('cstreet-mono') }
   }, [])
 
+  const load = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
+    try {
+      if (showLoading) setLoading(true)
+      const nextSnapshot = await fetchTaskDumpSnapshot()
+      setSnapshot(nextSnapshot)
+      setError(null)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Could not load C-Street Dump.')
+    } finally {
+      if (showLoading) setLoading(false)
+    }
+  }, [])
+
+  const scheduleLiveReload = useCallback(() => {
+    if (liveReloadTimerRef.current) clearTimeout(liveReloadTimerRef.current)
+    liveReloadTimerRef.current = setTimeout(() => {
+      void load({ showLoading: false })
+    }, 350)
+  }, [load])
+
   useEffect(() => {
     const taskTimers = taskTimersRef.current
     const thoughtTimers = thoughtTimersRef.current
     const blockTimers = blockTimersRef.current
 
-    load()
+    void load()
     return () => {
       taskTimers.forEach((timer) => clearTimeout(timer))
       thoughtTimers.forEach((timer) => clearTimeout(timer))
       blockTimers.forEach((timer) => clearTimeout(timer))
+      if (liveReloadTimerRef.current) clearTimeout(liveReloadTimerRef.current)
     }
-  }, [])
+  }, [load])
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('task-dump-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_dump_tasks' },
+        scheduleLiveReload
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_dump_task_workspace_blocks' },
+        scheduleLiveReload
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_dump_task_attachments' },
+        scheduleLiveReload
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_dump_thoughts' },
+        scheduleLiveReload
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_dump_thought_attachments' },
+        scheduleLiveReload
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          scheduleLiveReload()
+        }
+      })
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [scheduleLiveReload, supabase])
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      void load({ showLoading: false })
+    }
+
+    const intervalId = window.setInterval(refreshIfVisible, 5000)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshIfVisible()
+      }
+    }
+
+    window.addEventListener('focus', refreshIfVisible)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', refreshIfVisible)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [load])
 
   useEffect(() => {
     if (selectedTaskId && !snapshot.tasks.some((task) => task.id === selectedTaskId)) {
@@ -489,19 +576,6 @@ export function TaskDumpApp() {
 
     editor.dispatchEvent(new Event('input', { bubbles: true }))
   }, [])
-
-  async function load() {
-    try {
-      setLoading(true)
-      const nextSnapshot = await fetchTaskDumpSnapshot()
-      setSnapshot(nextSnapshot)
-      setError(null)
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Could not load C-Street Dump.')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   function updateTaskLocal(taskId: string, updater: (task: TaskDumpTask) => TaskDumpTask) {
     setSnapshot((prev) => ({
@@ -686,6 +760,7 @@ export function TaskDumpApp() {
       setQuickTaskPriority('none')
       setQuickTaskDueAt(null)
       setQuickTaskFiles([])
+      setQuickTaskComposerResetKey((current) => current + 1)
       toast.success('Task dumped into Pending.')
     } catch (createError) {
       toast.error(createError instanceof Error ? createError.message : 'Could not create task.')
@@ -737,16 +812,6 @@ export function TaskDumpApp() {
 
     updateTaskLocal(taskId, (current) => ({ ...current, status: nextStatus }))
     queueTaskSave(taskId, { status: nextStatus })
-
-    toast.success(`Moved to ${TASK_DUMP_STATUS_LABELS[nextStatus]}.`, {
-      action: {
-        label: 'Undo',
-        onClick: () => {
-          updateTaskLocal(taskId, (current) => ({ ...current, status: task.status }))
-          queueTaskSave(taskId, { status: task.status })
-        },
-      },
-    })
   }, [snapshot.tasks])
 
   const handleTaskReorder = useCallback(async (taskId: string, direction: 'up' | 'down') => {
@@ -879,6 +944,7 @@ export function TaskDumpApp() {
                 />
                 <div ref={quickDumpEditorWrapRef} className="border-b border-b-foreground/20 transition-colors focus-within:border-b-foreground/60">
                   <MarkdownComposer
+                    key={quickTaskComposerResetKey}
                     value={quickTaskText}
                     onChange={setQuickTaskText}
                     placeholder="Write a task..."
@@ -1441,18 +1507,20 @@ function TaskDialog({
                       setIsEditingTitle(false)
                     }
                   }}
-                  className="relative min-h-8 w-full cursor-text pr-2 text-xl font-normal tracking-tight outline-none before:pointer-events-none before:absolute before:left-0 before:top-0 before:whitespace-nowrap before:text-foreground/45 before:content-[attr(data-placeholder)] data-[empty=false]:before:hidden"
+                  className="relative block h-8 w-full cursor-text pr-2 text-left text-xl font-normal leading-8 tracking-tight text-foreground outline-none before:pointer-events-none before:absolute before:left-0 before:top-0 before:whitespace-nowrap before:text-foreground/45 before:content-[attr(data-placeholder)] data-[empty=false]:before:hidden"
                 />
               ) : (
                 <button
                   type="button"
-                  className="min-h-8 w-full cursor-text pr-2 text-left text-xl font-normal tracking-tight text-foreground"
+                  className="block h-8 w-full cursor-text pr-2 text-left text-xl font-normal leading-8 tracking-tight text-foreground"
                   onClick={() => {
-                    setTitleDraft(task.title ?? '')
+                    const initialTitle = task.title ?? ''
+                    setTitleDraft(initialTitle)
                     setIsEditingTitle(true)
                     requestAnimationFrame(() => {
                       const editor = titleEditorRef.current
                       if (!editor) return
+                      editor.textContent = initialTitle
                       editor.focus()
                       const selection = window.getSelection()
                       if (!selection) return

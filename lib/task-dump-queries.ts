@@ -17,6 +17,7 @@ async function requestTaskDump(
 ): Promise<TaskDumpSnapshot> {
   const response = await fetch('/api/task-dump', {
     ...init,
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers ?? {}),
