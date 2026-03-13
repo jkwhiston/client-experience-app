@@ -1428,7 +1428,7 @@ function TaskDialog({
   busyAttachmentTarget: string | null
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const titleEditorRef = useRef<HTMLDivElement>(null)
+  const titleEditorRef = useRef<HTMLInputElement>(null)
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -1438,9 +1438,10 @@ function TaskDialog({
       // Sync local panel/editor state each time a task dialog session starts.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setWorkspaceOpen(task.workspace_blocks.length > 0)
+      return
     }
     setIsEditingTitle(false)
-  }, [open, task])
+  }, [open, task?.id])
 
   useEffect(() => {
     if (!task) return
@@ -1484,17 +1485,15 @@ function TaskDialog({
             <div className="min-w-0 flex-1 space-y-2">
               <DialogTitle className="sr-only">Task details</DialogTitle>
               {isEditingTitle ? (
-                <div
+                <input
                   ref={titleEditorRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  role="textbox"
-                  aria-label="Task title"
-                  data-empty={!titleDraft.trim()}
-                  data-placeholder="Untitled task"
-                  onInput={(event) => {
-                    setTitleDraft(event.currentTarget.innerText)
+                  type="text"
+                  value={titleDraft}
+                  onChange={(event) => {
+                    setTitleDraft(event.target.value)
                   }}
+                  aria-label="Task title"
+                  placeholder="Untitled task"
                   onBlur={commitTitleEdit}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') {
@@ -1507,7 +1506,7 @@ function TaskDialog({
                       setIsEditingTitle(false)
                     }
                   }}
-                  className="relative block h-8 w-full cursor-text pr-2 text-left text-xl font-normal leading-8 tracking-tight text-foreground outline-none before:pointer-events-none before:absolute before:left-0 before:top-0 before:whitespace-nowrap before:text-foreground/45 before:content-[attr(data-placeholder)] data-[empty=false]:before:hidden"
+                  className="block h-8 w-full cursor-text border-0 bg-transparent px-0 pr-2 text-left text-xl font-normal leading-8 tracking-tight text-foreground outline-none placeholder:text-foreground/45"
                 />
               ) : (
                 <button
@@ -1520,15 +1519,9 @@ function TaskDialog({
                     requestAnimationFrame(() => {
                       const editor = titleEditorRef.current
                       if (!editor) return
-                      editor.textContent = initialTitle
                       editor.focus()
-                      const selection = window.getSelection()
-                      if (!selection) return
-                      const range = document.createRange()
-                      range.selectNodeContents(editor)
-                      range.collapse(false)
-                      selection.removeAllRanges()
-                      selection.addRange(range)
+                      const cursorPosition = initialTitle.length
+                      editor.setSelectionRange(cursorPosition, cursorPosition)
                     })
                   }}
                 >
