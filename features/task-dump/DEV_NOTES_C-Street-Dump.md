@@ -112,9 +112,12 @@ After editing this feature, run through:
 
 ## Notes Log (Latest)
 
+- Plain-text wrapping is now enforced in `MarkdownComposer` for both edit and preview surfaces.
+- Paste handling now forces non-checkbox pastes to insert as plain text (`insertText`) after Loom detection, preventing external clipboard markup/styles from introducing no-wrap behavior.
+- Checkbox multiline paste behavior remains scoped to checkbox-row context and is unchanged.
 - Inline/static toolbar mode is now the expected modal experience.
 - Legacy right-click hidden formatting guidance is outdated and should not be reintroduced without strong reason.
-- `execCommand` path has been removed from the composer; current editor model is textarea-based.
+- Composer remains `contentEditable`-based and still uses targeted `execCommand` paths for format actions and plain-text insertion behavior.
 - If a future refactor reintroduces rich DOM editing, document the migration details here before merging.
 
 ## Update Log - 2026-03-10 (Task Flow + Context Menu Controls)

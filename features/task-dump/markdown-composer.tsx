@@ -705,33 +705,40 @@ export function MarkdownComposer({
         }
       }
 
-      if (!rawText.includes('\n')) return
+      if (rawText.includes('\n')) {
+        const containerElement = getSelectionContainerElement()
+        const checkRow = containerElement?.closest?.('[data-task-check]') as HTMLElement | null
+        if (checkRow) {
+          const lines = splitPastedLines(rawText)
+          if (lines.length > 1) {
+            event.preventDefault()
 
-      const containerElement = getSelectionContainerElement()
-      const checkRow = containerElement?.closest?.('[data-task-check]') as HTMLElement | null
-      if (!checkRow) return
+            let insertionAnchor = checkRow
+            const rowIsEmpty = !getCheckboxRowText(checkRow)
+            let startIndex = 0
+            if (rowIsEmpty) {
+              setCheckboxRowText(checkRow, lines[0])
+              insertionAnchor = checkRow
+              startIndex = 1
+            }
 
-      const lines = splitPastedLines(rawText)
-      if (lines.length <= 1) return
+            for (let index = startIndex; index < lines.length; index += 1) {
+              const nextRow = createCheckboxRowElement(lines[index])
+              insertionAnchor.after(nextRow)
+              insertionAnchor = nextRow
+            }
 
+            placeCaretInCheckboxRow(insertionAnchor, 'end')
+            syncFromEditor()
+            return
+          }
+        }
+      }
+
+      // Force plain-text paste for non-checkbox content to avoid no-wrap markup
+      // that can be carried from external clipboard sources.
       event.preventDefault()
-
-      let insertionAnchor = checkRow
-      const rowIsEmpty = !getCheckboxRowText(checkRow)
-      let startIndex = 0
-      if (rowIsEmpty) {
-        setCheckboxRowText(checkRow, lines[0])
-        insertionAnchor = checkRow
-        startIndex = 1
-      }
-
-      for (let index = startIndex; index < lines.length; index += 1) {
-        const nextRow = createCheckboxRowElement(lines[index])
-        insertionAnchor.after(nextRow)
-        insertionAnchor = nextRow
-      }
-
-      placeCaretInCheckboxRow(insertionAnchor, 'end')
+      document.execCommand('insertText', false, rawText)
       syncFromEditor()
     }
 
@@ -874,9 +881,10 @@ export function MarkdownComposer({
   }
 
   const editorStyles = [
-    'subtle-scrollbar block w-full resize-none overflow-y-auto bg-transparent px-4 py-3 text-left text-sm leading-relaxed text-foreground outline-none',
+    'subtle-scrollbar block w-full resize-none overflow-x-hidden overflow-y-auto break-words bg-transparent px-4 py-3 text-left text-sm leading-relaxed text-foreground outline-none [overflow-wrap:anywhere]',
     '[&_hr]:my-3 [&_hr]:border-muted-foreground/35',
     '[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5',
+    '[&_code]:break-words [&_pre]:break-words [&_pre]:whitespace-pre-wrap',
   ].join(' ')
 
   return (
@@ -946,7 +954,7 @@ export function MarkdownComposer({
             dangerouslySetInnerHTML={{ __html: previewHtml }}
             style={maxHeightPx ? { maxHeight: `${maxHeightPx}px` } : undefined}
             className={cn(
-              'subtle-scrollbar prose prose-sm dark:prose-invert block max-w-none overflow-y-auto px-4 py-3 text-left text-sm leading-relaxed [&_a]:text-primary [&_a]:underline [&_hr]:my-3 [&_hr]:border-muted-foreground/65 [&_p]:my-0 [&_p+*:not(hr)]:mt-4',
+              'subtle-scrollbar prose prose-sm dark:prose-invert block max-w-none overflow-x-hidden overflow-y-auto break-words px-4 py-3 text-left text-sm leading-relaxed [overflow-wrap:anywhere] [&_a]:text-primary [&_a]:underline [&_code]:break-words [&_pre]:break-words [&_pre]:whitespace-pre-wrap [&_hr]:my-3 [&_hr]:border-muted-foreground/65 [&_p]:my-0 [&_p+*:not(hr)]:mt-4',
               minHeightClassName,
               maxHeightClassName,
               previewClassName,
