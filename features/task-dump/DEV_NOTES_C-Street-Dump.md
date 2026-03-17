@@ -115,6 +115,9 @@ After editing this feature, run through:
 - Plain-text wrapping is now enforced in `MarkdownComposer` for both edit and preview surfaces.
 - Paste handling now forces non-checkbox pastes to insert as plain text (`insertText`) after Loom detection, preventing external clipboard markup/styles from introducing no-wrap behavior.
 - Checkbox multiline paste behavior remains scoped to checkbox-row context and is unchanged.
+- Quote-block formatting is now part of the canonical C-Street formatting toolset in both quick dump controls and modal inline toolbars.
+- Quote toggle behavior now supports multi-block removal: selecting sequential blockquotes and pressing quote removes all selected quote blocks in one action.
+- Quote removal now prefers browser `outdent` on the selected quote range, which preserves line structure and keeps the action in the native undo stack (`Cmd/Ctrl+Z`).
 - Inline/static toolbar mode is now the expected modal experience.
 - Legacy right-click hidden formatting guidance is outdated and should not be reintroduced without strong reason.
 - Composer remains `contentEditable`-based and still uses targeted `execCommand` paths for format actions and plain-text insertion behavior.

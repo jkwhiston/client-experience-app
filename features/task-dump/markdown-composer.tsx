@@ -12,6 +12,7 @@ import {
   Maximize2,
   Minimize2,
   Minus,
+  TextQuote,
   Underline,
 } from 'lucide-react'
 import { marked } from 'marked'
@@ -43,6 +44,7 @@ type FormatAction =
   | 'bullet-list'
   | 'numbered-list'
   | 'checkbox'
+  | 'quote'
   | 'divider'
 
 type EditorMode = 'edit' | 'preview'
@@ -62,6 +64,7 @@ const FORMAT_ITEMS: {
   { action: 'bullet-list', label: 'Bullets', icon: List },
   { action: 'numbered-list', label: 'Numbered list', icon: ListOrdered },
   { action: 'checkbox', label: 'Checkbox list', icon: ListChecks },
+  { action: 'quote', label: 'Quote block', icon: TextQuote },
   { action: 'divider', label: 'Divider', icon: Minus },
 ]
 
@@ -196,6 +199,111 @@ function setCheckboxRowText(row: HTMLElement, text: string) {
   textSpan.setAttribute('data-check-text', '')
   textSpan.textContent = text || EMPTY_CHECKBOX_TEXT_ANCHOR
   row.append(toggle, textSpan)
+}
+
+function insertQuoteBlockAtSelection(editor: HTMLElement): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return false
+
+  const range = selection.getRangeAt(0)
+  if (!editor.contains(range.commonAncestorContainer)) return false
+
+  const quote = document.createElement('blockquote')
+  if (range.collapsed) {
+    quote.append(document.createElement('br'))
+    range.insertNode(quote)
+    const nextRange = document.createRange()
+    nextRange.selectNodeContents(quote)
+    nextRange.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(nextRange)
+    return true
+  }
+
+  const fragment = range.extractContents()
+  quote.append(fragment)
+  range.insertNode(quote)
+  const nextRange = document.createRange()
+  nextRange.selectNodeContents(quote)
+  nextRange.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(nextRange)
+  return true
+}
+
+function toggleQuoteBlockAtSelection(editor: HTMLElement): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return false
+
+  const range = selection.getRangeAt(0)
+  if (!editor.contains(range.commonAncestorContainer)) return false
+
+  function unwrapQuoteBlock(quote: HTMLElement) {
+    const parent = quote.parentNode
+    if (!parent) return
+
+    const fragment = document.createDocumentFragment()
+    Array.from(quote.childNodes).forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent ?? ''
+        if (!text.trim()) return
+        const row = document.createElement('div')
+        row.textContent = text
+        fragment.append(row)
+        return
+      }
+      fragment.append(node)
+    })
+
+    parent.insertBefore(fragment, quote)
+    parent.removeChild(quote)
+  }
+
+  function outdentQuoteRange(firstQuote: HTMLElement, lastQuote: HTMLElement): boolean {
+    const outdentRange = document.createRange()
+    outdentRange.setStartBefore(firstQuote)
+    outdentRange.setEndAfter(lastQuote)
+    selection.removeAllRanges()
+    selection.addRange(outdentRange)
+    return document.execCommand('outdent')
+  }
+
+  const intersectingQuotes = Array.from(editor.querySelectorAll('blockquote')).filter((quote) => {
+    try {
+      return range.intersectsNode(quote)
+    } catch {
+      return false
+    }
+  }) as HTMLElement[]
+  const selectedQuotes = intersectingQuotes.filter(
+    (quote) => !intersectingQuotes.some((other) => other !== quote && other.contains(quote))
+  )
+
+  const selectionElement =
+    range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.commonAncestorContainer as HTMLElement)
+      : range.commonAncestorContainer.parentElement
+  const activeQuote = selectionElement?.closest('blockquote') as HTMLElement | null
+  if (selectedQuotes.length > 0) {
+    const firstQuote = selectedQuotes[0]
+    const lastQuote = selectedQuotes[selectedQuotes.length - 1]
+    if (outdentQuoteRange(firstQuote, lastQuote)) return true
+    selectedQuotes.forEach(unwrapQuoteBlock)
+    return true
+  }
+  if (activeQuote && editor.contains(activeQuote)) {
+    if (outdentQuoteRange(activeQuote, activeQuote)) return true
+    unwrapQuoteBlock(activeQuote)
+    return true
+  }
+
+  if (
+    !document.execCommand('formatBlock', false, 'blockquote') &&
+    !document.execCommand('formatBlock', false, '<blockquote>')
+  ) {
+    return insertQuoteBlockAtSelection(editor)
+  }
+  return true
 }
 
 function placeCaretInCheckboxRow(row: HTMLElement, at: 'start' | 'end' = 'start') {
@@ -838,7 +946,13 @@ export function MarkdownComposer({
     if (editorMode === 'preview') return
     const editor = editorRef.current
     if (!editor) return
-    editor.focus()
+    const selection = window.getSelection()
+    const hasSelectionInEditor = Boolean(
+      selection &&
+      selection.rangeCount > 0 &&
+      editor.contains(selection.getRangeAt(0).commonAncestorContainer)
+    )
+    if (!hasSelectionInEditor) editor.focus()
 
     switch (action) {
       case 'bold':
@@ -858,6 +972,9 @@ export function MarkdownComposer({
         break
       case 'checkbox':
         document.execCommand('insertHTML', false, newCheckboxHtml())
+        break
+      case 'quote':
+        toggleQuoteBlockAtSelection(editor)
         break
       case 'divider':
         document.execCommand('insertHTML', false, '<hr>')
@@ -882,6 +999,7 @@ export function MarkdownComposer({
 
   const editorStyles = [
     'subtle-scrollbar block w-full resize-none overflow-x-hidden overflow-y-auto break-words bg-transparent px-4 py-3 text-left text-sm leading-relaxed text-foreground outline-none [overflow-wrap:anywhere]',
+    '[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-foreground/35 [&_blockquote]:pl-3',
     '[&_hr]:my-3 [&_hr]:border-muted-foreground/35',
     '[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5',
     '[&_code]:break-words [&_pre]:break-words [&_pre]:whitespace-pre-wrap',

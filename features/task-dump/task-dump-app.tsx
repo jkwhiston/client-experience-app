@@ -30,6 +30,7 @@ import {
   Paperclip,
   Plus,
   RefreshCcw,
+  TextQuote,
   Trash2,
   Underline,
 } from 'lucide-react'
@@ -137,6 +138,7 @@ type QuickDumpFormatAction =
   | 'bullet-list'
   | 'numbered-list'
   | 'checkbox'
+  | 'quote'
   | 'divider'
 
 const QUICK_DUMP_FORMAT_ITEMS: {
@@ -150,11 +152,118 @@ const QUICK_DUMP_FORMAT_ITEMS: {
   { action: 'bullet-list', label: 'Bullets', icon: List },
   { action: 'numbered-list', label: 'Numbered list', icon: ListOrdered },
   { action: 'checkbox', label: 'Checkbox list', icon: ListChecks },
+  { action: 'quote', label: 'Quote block', icon: TextQuote },
   { action: 'divider', label: 'Divider', icon: Minus },
 ]
 
 function newQuickDumpCheckboxHtml(): string {
   return `<div data-task-check="unchecked"><span data-check-toggle contenteditable="false">\u2610</span><span data-check-text>\u00a0</span></div>`
+}
+
+function insertQuoteBlockAtSelection(editor: HTMLElement): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return false
+
+  const range = selection.getRangeAt(0)
+  if (!editor.contains(range.commonAncestorContainer)) return false
+
+  const quote = document.createElement('blockquote')
+  if (range.collapsed) {
+    quote.append(document.createElement('br'))
+    range.insertNode(quote)
+    const nextRange = document.createRange()
+    nextRange.selectNodeContents(quote)
+    nextRange.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(nextRange)
+    return true
+  }
+
+  const fragment = range.extractContents()
+  quote.append(fragment)
+  range.insertNode(quote)
+  const nextRange = document.createRange()
+  nextRange.selectNodeContents(quote)
+  nextRange.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(nextRange)
+  return true
+}
+
+function toggleQuoteBlockAtSelection(editor: HTMLElement): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return false
+
+  const range = selection.getRangeAt(0)
+  if (!editor.contains(range.commonAncestorContainer)) return false
+
+  function unwrapQuoteBlock(quote: HTMLElement) {
+    const parent = quote.parentNode
+    if (!parent) return
+
+    const fragment = document.createDocumentFragment()
+    Array.from(quote.childNodes).forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent ?? ''
+        if (!text.trim()) return
+        const row = document.createElement('div')
+        row.textContent = text
+        fragment.append(row)
+        return
+      }
+      fragment.append(node)
+    })
+
+    parent.insertBefore(fragment, quote)
+    parent.removeChild(quote)
+  }
+
+  function outdentQuoteRange(firstQuote: HTMLElement, lastQuote: HTMLElement): boolean {
+    const outdentRange = document.createRange()
+    outdentRange.setStartBefore(firstQuote)
+    outdentRange.setEndAfter(lastQuote)
+    selection.removeAllRanges()
+    selection.addRange(outdentRange)
+    return document.execCommand('outdent')
+  }
+
+  const intersectingQuotes = Array.from(editor.querySelectorAll('blockquote')).filter((quote) => {
+    try {
+      return range.intersectsNode(quote)
+    } catch {
+      return false
+    }
+  }) as HTMLElement[]
+  const selectedQuotes = intersectingQuotes.filter(
+    (quote) => !intersectingQuotes.some((other) => other !== quote && other.contains(quote))
+  )
+
+  const selectionElement =
+    range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.commonAncestorContainer as HTMLElement)
+      : range.commonAncestorContainer.parentElement
+  const activeQuote = selectionElement?.closest('blockquote') as HTMLElement | null
+
+  if (selectedQuotes.length > 0) {
+    const firstQuote = selectedQuotes[0]
+    const lastQuote = selectedQuotes[selectedQuotes.length - 1]
+    if (outdentQuoteRange(firstQuote, lastQuote)) return true
+    selectedQuotes.forEach(unwrapQuoteBlock)
+    return true
+  }
+  if (activeQuote && editor.contains(activeQuote)) {
+    if (outdentQuoteRange(activeQuote, activeQuote)) return true
+    unwrapQuoteBlock(activeQuote)
+    return true
+  }
+
+  if (
+    !document.execCommand('formatBlock', false, 'blockquote') &&
+    !document.execCommand('formatBlock', false, '<blockquote>')
+  ) {
+    return insertQuoteBlockAtSelection(editor)
+  }
+  return true
 }
 
 function DumpTruckDumpingIcon({ className }: { className?: string }) {
@@ -548,7 +657,13 @@ export function TaskDumpApp() {
     const editor = quickDumpEditorWrapRef.current?.querySelector('[contenteditable="true"]') as HTMLDivElement | null
     if (!editor) return
 
-    editor.focus()
+    const selection = window.getSelection()
+    const hasSelectionInEditor = Boolean(
+      selection &&
+      selection.rangeCount > 0 &&
+      editor.contains(selection.getRangeAt(0).commonAncestorContainer)
+    )
+    if (!hasSelectionInEditor) editor.focus()
 
     switch (action) {
       case 'bold':
@@ -568,6 +683,9 @@ export function TaskDumpApp() {
         break
       case 'checkbox':
         document.execCommand('insertHTML', false, newQuickDumpCheckboxHtml())
+        break
+      case 'quote':
+        toggleQuoteBlockAtSelection(editor)
         break
       case 'divider':
         document.execCommand('insertHTML', false, '<hr>')
