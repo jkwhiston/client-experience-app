@@ -260,11 +260,13 @@ function toggleQuoteBlockAtSelection(editor: HTMLElement): boolean {
   }
 
   function outdentQuoteRange(firstQuote: HTMLElement, lastQuote: HTMLElement): boolean {
+    const currentSelection = window.getSelection()
+    if (!currentSelection) return false
     const outdentRange = document.createRange()
     outdentRange.setStartBefore(firstQuote)
     outdentRange.setEndAfter(lastQuote)
-    selection.removeAllRanges()
-    selection.addRange(outdentRange)
+    currentSelection.removeAllRanges()
+    currentSelection.addRange(outdentRange)
     return document.execCommand('outdent')
   }
 
