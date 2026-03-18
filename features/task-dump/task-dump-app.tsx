@@ -40,6 +40,7 @@ import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -155,6 +156,8 @@ const QUICK_DUMP_FORMAT_ITEMS: {
   { action: 'quote', label: 'Quote block', icon: TextQuote },
   { action: 'divider', label: 'Divider', icon: Minus },
 ]
+
+type TaskDueUrgency = 'none' | 'amber' | 'red'
 
 function newQuickDumpCheckboxHtml(): string {
   return `<div data-task-check="unchecked"><span data-check-toggle contenteditable="false">\u2610</span><span data-check-text>\u00a0</span></div>`
@@ -353,6 +356,22 @@ function getTaskBodyPreview(body: string): string {
   return stripHtmlToText(body)
 }
 
+function getTaskDueUrgency(task: Pick<TaskDumpTask, 'due_at' | 'status'>): TaskDueUrgency {
+  if (!task.due_at || task.status === 'done') return 'none'
+  const dueMs = new Date(task.due_at).getTime()
+  if (Number.isNaN(dueMs)) return 'none'
+  const msUntilDue = dueMs - Date.now()
+  if (msUntilDue <= 0) return 'red'
+  if (msUntilDue <= 24 * 60 * 60 * 1000) return 'amber'
+  return 'none'
+}
+
+function getTaskDueUrgencyClassName(urgency: TaskDueUrgency): string {
+  if (urgency === 'amber') return 'due-pulse-amber'
+  if (urgency === 'red') return 'due-pulse-red'
+  return ''
+}
+
 function normalizeCopiedText(value: string): string {
   if (!/<[a-z][\s\S]*>/i.test(value)) return value
   const probe = document.createElement('div')
@@ -482,31 +501,19 @@ const TASK_DUMP_MODAL_SURFACE_STYLES: Record<
   TaskDumpStatus,
   {
     dialogClassName: string
-    borderGradientStart: string
-    headerClassName: string
-    workspaceLabelClassName: string
     railClassName: string
   }
 > = {
   pending: {
     dialogClassName: 'border border-foreground/28 bg-background shadow-none',
-    borderGradientStart: '',
-    headerClassName: '',
-    workspaceLabelClassName: 'text-foreground/40',
     railClassName: 'border-l-foreground/15',
   },
   in_progress: {
     dialogClassName: 'border border-foreground/28 bg-background shadow-none',
-    borderGradientStart: '',
-    headerClassName: '',
-    workspaceLabelClassName: 'text-foreground/40',
     railClassName: 'border-l-foreground/15',
   },
   done: {
     dialogClassName: 'border border-foreground/28 bg-background shadow-none',
-    borderGradientStart: '',
-    headerClassName: '',
-    workspaceLabelClassName: 'text-foreground/40',
     railClassName: 'border-l-foreground/15',
   },
 }
@@ -1419,6 +1426,7 @@ const TaskCard = memo(function TaskCard({
   const statusStyles = TASK_DUMP_STATUS_STYLES[task.status]
   const canMoveBackward = Boolean(getAdjacentTaskStatus(task.status, 'backward'))
   const canMoveForward = Boolean(getAdjacentTaskStatus(task.status, 'forward'))
+  const dueUrgency = getTaskDueUrgency(task)
 
   return (
     <ContextMenu>
@@ -1440,7 +1448,13 @@ const TaskCard = memo(function TaskCard({
                 </p>
               )}
               {task.due_at && (
-                <p className={cn('mt-2 text-[11px]', statusStyles.cardMetaClassName)}>
+                <p
+                  className={cn(
+                    'mt-2 text-[11px]',
+                    statusStyles.cardMetaClassName,
+                    getTaskDueUrgencyClassName(dueUrgency)
+                  )}
+                >
                   {formatTaskDumpDate(task.due_at)}
                 </p>
               )}
@@ -1579,6 +1593,7 @@ function TaskDialog({
         ? { dotClassName: 'bg-sky-400', textClassName: 'text-sky-400/80' }
         : { dotClassName: 'bg-emerald-400', textClassName: 'text-emerald-400/80' }
   const priorityMeta = TASK_DUMP_PRIORITY_OPTIONS.find((option) => option.value === task.priority_flag) ?? TASK_DUMP_PRIORITY_OPTIONS[0]
+  const dueUrgency = getTaskDueUrgency(task)
 
   function commitTitleEdit() {
     if (!task) return
@@ -1596,13 +1611,21 @@ function TaskDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className={cn('max-h-[92vh] overflow-hidden p-0 sm:max-w-5xl', modalSurfaceStyles.dialogClassName)}
+        className={cn(
+          'max-h-[92vh] overflow-hidden p-0 sm:max-w-5xl',
+          modalSurfaceStyles.dialogClassName
+        )}
       >
-        <DialogHeader
-          className="relative sticky top-0 z-20 border-b border-foreground/10 bg-background px-8 py-5"
-        >
+        <DialogHeader className="relative sticky top-0 z-20 border-b border-foreground/10 bg-background px-8 py-5">
+          <DialogDescription className="sr-only">
+            View and edit task details, status, priority, due date, notes, and attachments.
+          </DialogDescription>
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1 space-y-2">
+            <div className="relative -ml-1 min-w-0 flex-1 space-y-2 pl-3">
+              <span
+                aria-hidden="true"
+                className={cn('absolute left-[1px] top-1.5 -bottom-1 w-px origin-left scale-x-50 rounded-full opacity-90', statusAccent.dotClassName)}
+              />
               <DialogTitle className="sr-only">Task details</DialogTitle>
               {isEditingTitle ? (
                 <input
@@ -1728,7 +1751,7 @@ function TaskDialog({
                     onClick={() => setWorkspaceOpen((current) => !current)}
                   >
                     {workspaceOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                    Workspace ({task.workspace_blocks.length})
+                    Workspace / Follow ups ({task.workspace_blocks.length})
                   </button>
                   <button
                     type="button"
@@ -1877,7 +1900,12 @@ function TaskDialog({
                         className="h-9 w-full justify-start border-0 px-0 text-sm hover:bg-transparent"
                       >
                         <CalendarDays className="mr-2 h-4 w-4 text-foreground/60" />
-                        <span className={cn(!task.due_at && 'text-foreground/65')}>
+                        <span
+                          className={cn(
+                            !task.due_at && 'text-foreground/65',
+                            getTaskDueUrgencyClassName(dueUrgency)
+                          )}
+                        >
                           {formatTaskDumpDate(task.due_at)}
                         </span>
                       </Button>
@@ -2094,6 +2122,9 @@ function ThoughtDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false} className="max-h-[88vh] overflow-hidden border border-foreground/28 bg-background p-0 shadow-none sm:max-w-3xl">
         <DialogHeader className="border-b border-foreground/10 px-8 py-5">
+          <DialogDescription className="sr-only">
+            View and edit thought details and attachments.
+          </DialogDescription>
           <div className="flex items-start justify-between gap-3">
             <div>
               <DialogTitle className="text-xl font-normal">Thought</DialogTitle>
@@ -2277,6 +2308,9 @@ function AttachmentViewerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[88vh] overflow-hidden border border-foreground/28 bg-background p-0 shadow-none sm:max-w-4xl">
         <DialogHeader className="border-b border-foreground/10 px-8 py-4">
+          <DialogDescription className="sr-only">
+            Preview attachment content for this task dump item.
+          </DialogDescription>
           <DialogTitle className="truncate pr-6 text-sm font-normal text-foreground/80">{attachment.file_name}</DialogTitle>
         </DialogHeader>
         <div className="max-h-[calc(88vh-70px)] overflow-auto p-8">

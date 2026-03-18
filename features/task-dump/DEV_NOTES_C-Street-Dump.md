@@ -112,6 +112,26 @@ After editing this feature, run through:
 
 ## Notes Log (Latest)
 
+- Update Log - 2026-03-17 (Modal Status Cues + Deadline Pulse/Calendar Polish):
+  - Task modal now uses a status-colored micro vertical bar in the header title/meta block for at-a-glance status context.
+    - Placement/length were iteratively tuned for visual balance (spacing from title, lower alignment toward metadata row).
+    - Bar is intentionally ultra-thin via `w-px` + `scale-x-50`.
+  - Added task due-date urgency signaling for non-`done` tasks:
+    - `amber` pulse for due within 24 hours.
+    - `red` pulse for overdue (deadline hit/past).
+    - Applied in both overview cards and task modal due-date display.
+  - Deadline pulse animation was tuned away from a square-wave feel:
+    - Added intermediate keyframe stops for smoother S-curve-like transitions.
+    - Slowed pulse cadence for less aggressive motion.
+    - Raised min alpha floor from `0.03` to `0.10`.
+  - Overdue red hue now matches `HIGH` priority red (`rose-500` family) for consistent color semantics.
+  - Calendar interaction polish:
+    - `Today` marker changed to a subtle ring-only indicator.
+    - Selected day is explicitly locked to solid white in all themes, including hover.
+    - Removed unwanted hover state transitions on day cells.
+  - Added required `DialogDescription` nodes to task/thought/attachment dialogs to satisfy Radix accessibility expectations and avoid description warnings.
+  - Task modal workspace section label updated to: `Workspace / Follow ups`.
+
 - Plain-text wrapping is now enforced in `MarkdownComposer` for both edit and preview surfaces.
 - Paste handling now forces non-checkbox pastes to insert as plain text (`insertText`) after Loom detection, preventing external clipboard markup/styles from introducing no-wrap behavior.
 - Checkbox multiline paste behavior remains scoped to checkbox-row context and is unchanged.
