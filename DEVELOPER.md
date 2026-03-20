@@ -793,9 +793,7 @@ Active pending nodes that are within 24 hours of their deadline now show a **yel
    - `createClientWithExperiences()` falls back when intake columns and/or `day10` enum are not yet available
    - `updateClient()` falls back for missing intake columns and returns `false` for intake-only updates against non-migrated schemas
 
-4. **Intake reminder toggle placement** (`components/client-row.tsx`, `components/experience-detail-modal.tsx`) — For blank intake values, `Pulse reminder: On/Off` is now hidden in row actions instead of inline in the date column, reducing visual clutter. It is available in:
-   - row `...` dropdown (with bell icon state: `BellRing` / `BellOff`)
-   - Experience Detail modal (`Intake reminder pulse when blank`)
+4. **Intake reminder toggle placement** (`components/client-row.tsx`) — For blank intake values, `Pulse reminder: On/Off` lives in the row `...` dropdown (bell icon: `BellRing` / `BellOff`), not inline in the date column or in the experience detail modal.
 
 5. **Three-state intake display semantics** (`components/client-row.tsx`, `app/globals.css`) — The Initial Intake row now uses explicit states:
    - `set`: blue text
@@ -807,7 +805,7 @@ Active pending nodes that are within 24 hours of their deadline now show a **yel
 
 7. **Name/date divider polish** (`components/client-row.tsx`) — Added a subtle divider between client name and date metadata. Divider width now follows measured rendered name width (including wrapped names) via `ResizeObserver`, rather than fixed-width buckets.
 
-8. **Persistence failure feedback** (`components/client-row.tsx`, `components/experience-detail-modal.tsx`) — Intake date and pulse toggles now show toasts and rollback optimistic local state if DB persistence fails.
+8. **Persistence failure feedback** (`components/client-row.tsx`, `components/experience-detail-modal.tsx`) — Intake date edits (and pulse toggle on the row) show toasts and rollback optimistic local state if DB persistence fails.
 
 9. **Migration execution note** — In Supabase SQL editor, the `day10` migration must be run in two executions due to PostgreSQL enum commit requirements:
    - Step 1: add intake columns + add enum value `day10`

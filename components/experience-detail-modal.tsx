@@ -284,17 +284,6 @@ export function ExperienceDetailModal({
     }
   }
 
-  async function handleIntakePulseToggle() {
-    const previous = client.initial_intake_pulse_enabled
-    const nextValue = !previous
-    updateClientLocal(client.id, (c) => ({ ...c, initial_intake_pulse_enabled: nextValue }))
-    const ok = await updateClient(client.id, { initial_intake_pulse_enabled: nextValue })
-    if (!ok) {
-      updateClientLocal(client.id, (c) => ({ ...c, initial_intake_pulse_enabled: previous }))
-      toast('Could not update intake pulse setting.')
-    }
-  }
-
   const firmTz = process.env.NEXT_PUBLIC_FIRM_TIMEZONE || 'America/New_York'
 
   function handleCompletionCalendarOpen(open: boolean) {
@@ -820,20 +809,6 @@ export function ExperienceDetailModal({
               </Popover>
             </div>
           </div>
-
-          {!client.initial_intake_date && (
-            <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-              <span className="text-xs text-muted-foreground">
-                Intake reminder pulse when blank
-              </span>
-              <button
-                onClick={handleIntakePulseToggle}
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                {client.initial_intake_pulse_enabled ? 'On' : 'Off'}
-              </button>
-            </div>
-          )}
 
           {client.paused && (
             <div className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-1.5">
