@@ -2271,6 +2271,7 @@ function ThoughtDialog({
   if (!thought) return null
 
   function commitTitleEdit() {
+    if (!thought) return
     const normalizedTitle = titleDraft.replace(/\s+/g, ' ').trim()
     const nextTitle = normalizedTitle || 'Thought'
     onThoughtChange(
