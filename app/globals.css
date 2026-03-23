@@ -216,6 +216,32 @@ html.cstreet-mono h6 {
   opacity: 0;
 }
 
+/* C-Street Dump: subtle attention for kanban "In Progress" task cards */
+@keyframes task-dump-in-progress-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(14 165 233 / 0), 0 0 14px -6px rgb(14 165 233 / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgb(14 165 233 / 0.18), 0 0 20px -4px rgb(14 165 233 / 0.2);
+  }
+}
+
+.task-dump-card-in-progress {
+  border-radius: 0.375rem;
+  animation-name: task-dump-in-progress-pulse;
+  animation-duration: 3.6s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-dump-card-in-progress {
+    animation: none;
+    box-shadow: 0 0 0 1px rgb(14 165 233 / 0.2);
+  }
+}
+
 @keyframes today-cell-pulse {
   0%, 100% { background-color: transparent; }
   50%      { background-color: rgba(251,191,36,0.18); }

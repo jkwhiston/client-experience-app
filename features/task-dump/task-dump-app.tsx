@@ -1,6 +1,14 @@
 'use client'
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import {
@@ -518,6 +526,40 @@ const TASK_DUMP_MODAL_SURFACE_STYLES: Record<
   },
 }
 
+const TASK_DUMP_IN_PROGRESS_PULSE_MIN_MS = 3000
+const TASK_DUMP_IN_PROGRESS_PULSE_MAX_MS = 4800
+const TASK_DUMP_IN_PROGRESS_PULSE_EASINGS = [
+  'cubic-bezier(0.35, 0.08, 0.25, 1)',
+  'cubic-bezier(0.4, 0.05, 0.2, 1)',
+  'cubic-bezier(0.3, 0.12, 0.25, 1)',
+] as const
+
+function hashTaskDumpPulseSeed(taskId: string, salt: number): number {
+  let h = (2166136261 ^ salt) >>> 0
+  for (let i = 0; i < taskId.length; i++) {
+    h ^= taskId.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+function taskDumpInProgressPulseStyle(taskId: string): CSSProperties {
+  const durationHash = hashTaskDumpPulseSeed(taskId, 0x9e3779b1)
+  const phaseHash = hashTaskDumpPulseSeed(taskId, 0x85ebca77)
+  const easingHash = hashTaskDumpPulseSeed(taskId, 0xc2b2ae3d)
+
+  const durationMs =
+    TASK_DUMP_IN_PROGRESS_PULSE_MIN_MS +
+    (durationHash % (TASK_DUMP_IN_PROGRESS_PULSE_MAX_MS - TASK_DUMP_IN_PROGRESS_PULSE_MIN_MS + 1))
+  const negativePhaseOffsetMs = phaseHash % durationMs
+
+  return {
+    animationDuration: `${(durationMs / 1000).toFixed(3)}s`,
+    animationDelay: `-${(negativePhaseOffsetMs / 1000).toFixed(3)}s`,
+    animationTimingFunction: TASK_DUMP_IN_PROGRESS_PULSE_EASINGS[easingHash % TASK_DUMP_IN_PROGRESS_PULSE_EASINGS.length],
+  }
+}
+
 export function TaskDumpApp() {
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
@@ -547,6 +589,11 @@ export function TaskDumpApp() {
   const blockPayloadRef = useRef(new Map<string, BlockSavePayload>())
   const blockSaveVersionRef = useRef(new Map<string, number>())
   const liveReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadRequestIdRef = useRef(0)
+  const columnStepInFlightRef = useRef(new Set<string>())
+  const reorderInFlightRef = useRef(new Set<string>())
+  const taskMutationsInFlightRef = useRef(0)
+  const deferredLiveReloadRef = useRef(false)
 
   useEffect(() => {
     document.documentElement.classList.add('cstreet-mono')
@@ -554,12 +601,15 @@ export function TaskDumpApp() {
   }, [])
 
   const load = useCallback(async ({ showLoading = true }: { showLoading?: boolean } = {}) => {
+    const requestId = ++loadRequestIdRef.current
     try {
       if (showLoading) setLoading(true)
       const nextSnapshot = await fetchTaskDumpSnapshot()
+      if (requestId !== loadRequestIdRef.current) return
       setSnapshot(nextSnapshot)
       setError(null)
     } catch (loadError) {
+      if (requestId !== loadRequestIdRef.current) return
       setError(loadError instanceof Error ? loadError.message : 'Could not load C-Street Dump.')
     } finally {
       if (showLoading) setLoading(false)
@@ -567,6 +617,10 @@ export function TaskDumpApp() {
   }, [])
 
   const scheduleLiveReload = useCallback(() => {
+    if (taskMutationsInFlightRef.current > 0) {
+      deferredLiveReloadRef.current = true
+      return
+    }
     if (liveReloadTimerRef.current) clearTimeout(liveReloadTimerRef.current)
     liveReloadTimerRef.current = setTimeout(() => {
       void load({ showLoading: false })
@@ -898,7 +952,10 @@ export function TaskDumpApp() {
     if (!quickThoughtText.trim()) return
 
     try {
-      const nextSnapshot = await createTaskDumpThought({ content: quickThoughtText.trim() })
+      const nextSnapshot = await createTaskDumpThought({
+        content: quickThoughtText.trim(),
+        title: 'Thought',
+      })
       setSnapshot(nextSnapshot)
       setQuickThoughtText('')
       toast.success('Thought added.')
@@ -931,17 +988,76 @@ export function TaskDumpApp() {
     }
   }, [])
 
-  const handleTaskStep = useCallback((taskId: string, direction: 'backward' | 'forward') => {
-    const task = snapshot.tasks.find((candidate) => candidate.id === taskId)
-    if (!task) return
-    const nextStatus = getAdjacentTaskStatus(task.status, direction)
-    if (!nextStatus) return
+  const handleTaskStep = useCallback(
+    async (taskId: string, direction: 'backward' | 'forward') => {
+      const task = snapshot.tasks.find((candidate) => candidate.id === taskId)
+      if (!task) return
+      const nextStatus = getAdjacentTaskStatus(task.status, direction)
+      if (!nextStatus) return
+      if (columnStepInFlightRef.current.has(taskId)) return
 
-    updateTaskLocal(taskId, (current) => ({ ...current, status: nextStatus }))
-    queueTaskSave(taskId, { status: nextStatus })
-  }, [snapshot.tasks])
+      const maxOrderInTarget = snapshot.tasks
+        .filter((candidate) => candidate.status === nextStatus && candidate.id !== taskId)
+        .reduce((max, candidate) => Math.max(max, candidate.column_order), -1)
+      const nextColumnOrder = maxOrderInTarget + 1
+
+      const previousPending = taskPayloadRef.current.get(taskId)
+        ? ({ ...taskPayloadRef.current.get(taskId)! } satisfies TaskSavePayload)
+        : undefined
+      const mergedFromRef: TaskSavePayload = {
+        ...previousPending,
+        status: nextStatus,
+        columnOrder: nextColumnOrder,
+      }
+
+      const nextTitle = payloadHasKey(mergedFromRef, 'title') ? (mergedFromRef.title ?? null) : task.title
+      const nextBody = payloadHasKey(mergedFromRef, 'body') ? (mergedFromRef.body ?? '') : task.body
+      if (!hasTextContent(nextTitle) && !hasTextContent(nextBody)) return
+
+      const pendingTimer = taskTimersRef.current.get(taskId)
+      if (pendingTimer) {
+        clearTimeout(pendingTimer)
+        taskTimersRef.current.delete(taskId)
+      }
+
+      taskPayloadRef.current.delete(taskId)
+      taskMutationsInFlightRef.current += 1
+      setSnapshot((prev) => ({
+        ...prev,
+        tasks: prev.tasks.map((t) =>
+          t.id === taskId ? { ...t, status: nextStatus, column_order: nextColumnOrder } : t
+        ),
+      }))
+
+      taskSaveVersionRef.current.set(taskId, (taskSaveVersionRef.current.get(taskId) ?? 0) + 1)
+      const requestVersion = taskSaveVersionRef.current.get(taskId) ?? 0
+
+      columnStepInFlightRef.current.add(taskId)
+      try {
+        const nextSnapshot = await updateTaskDumpTask(taskId, mergedFromRef)
+        const latestVersion = taskSaveVersionRef.current.get(taskId) ?? 0
+        if (latestVersion !== requestVersion || taskPayloadRef.current.has(taskId)) return
+        setSnapshot(nextSnapshot)
+      } catch (saveError) {
+        if (!taskPayloadRef.current.has(taskId) && previousPending) {
+          taskPayloadRef.current.set(taskId, previousPending)
+        }
+        toast.error(saveError instanceof Error ? saveError.message : 'Could not move task.')
+        await load({ showLoading: false })
+      } finally {
+        columnStepInFlightRef.current.delete(taskId)
+        taskMutationsInFlightRef.current = Math.max(0, taskMutationsInFlightRef.current - 1)
+        if (taskMutationsInFlightRef.current === 0 && deferredLiveReloadRef.current) {
+          deferredLiveReloadRef.current = false
+          scheduleLiveReload()
+        }
+      }
+    },
+    [load, scheduleLiveReload, snapshot.tasks]
+  )
 
   const handleTaskReorder = useCallback(async (taskId: string, direction: 'up' | 'down') => {
+    if (reorderInFlightRef.current.has(taskId)) return
     const task = snapshot.tasks.find((candidate) => candidate.id === taskId)
     if (!task) return
 
@@ -972,6 +1088,8 @@ export function TaskDumpApp() {
           : candidate
       ),
     }))
+    taskMutationsInFlightRef.current += 1
+    reorderInFlightRef.current.add(taskId)
 
     try {
       const nextSnapshot = await reorderTaskDumpTasks(updates)
@@ -979,8 +1097,15 @@ export function TaskDumpApp() {
     } catch (reorderError) {
       toast.error(reorderError instanceof Error ? reorderError.message : 'Could not move task.')
       await load()
+    } finally {
+      reorderInFlightRef.current.delete(taskId)
+      taskMutationsInFlightRef.current = Math.max(0, taskMutationsInFlightRef.current - 1)
+      if (taskMutationsInFlightRef.current === 0 && deferredLiveReloadRef.current) {
+        deferredLiveReloadRef.current = false
+        scheduleLiveReload()
+      }
     }
-  }, [snapshot.tasks])
+  }, [load, scheduleLiveReload, snapshot.tasks])
 
   async function handleThoughtDelete(thoughtId: string) {
     const pendingTimer = thoughtTimersRef.current.get(thoughtId)
@@ -1431,7 +1556,13 @@ const TaskCard = memo(function TaskCard({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="group py-4 pl-5 pr-2 transition-colors">
+        <div
+          className={cn(
+            'group py-4 pl-5 pr-2 transition-colors outline-none',
+            task.status === 'in_progress' && 'task-dump-card-in-progress'
+          )}
+          style={task.status === 'in_progress' ? taskDumpInProgressPulseStyle(task.id) : undefined}
+        >
           <div className="flex items-start gap-2">
             <button type="button" onClick={() => onOpenTask(task.id)} className="min-w-0 flex-1 text-left">
               {task.priority_flag !== 'none' && (
@@ -2057,7 +2188,7 @@ function ThoughtsPanel({
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <h3 className="truncate text-sm text-foreground/80">
-                    {thought.title || thought.content.split('\n')[0] || 'Untitled thought'}
+                    {thought.title?.replace(/\s+/g, ' ').trim() || 'Thought'}
                   </h3>
                   {thought.content && (
                     <p className="mt-0.5 line-clamp-2 text-xs text-foreground/60">
@@ -2115,19 +2246,101 @@ function ThoughtDialog({
   busyAttachmentTarget: string | null
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const titleEditorRef = useRef<HTMLInputElement>(null)
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+
+  useEffect(() => {
+    if (!open) {
+      setIsEditingTitle(false)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (open && thought) {
+      setIsEditingTitle(false)
+    }
+  }, [open, thought?.id])
+
+  useEffect(() => {
+    if (!thought) return
+    if (isEditingTitle) return
+    setTitleDraft(thought.title ?? '')
+  }, [thought, isEditingTitle])
 
   if (!thought) return null
 
+  function commitTitleEdit() {
+    const normalizedTitle = titleDraft.replace(/\s+/g, ' ').trim()
+    const nextTitle = normalizedTitle || 'Thought'
+    onThoughtChange(
+      thought.id,
+      (current) => ({ ...current, title: nextTitle }),
+      { title: nextTitle }
+    )
+    setIsEditingTitle(false)
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="max-h-[88vh] overflow-hidden border border-foreground/28 bg-background p-0 shadow-none sm:max-w-3xl">
+      <DialogContent
+        showCloseButton={false}
+        className="max-h-[88vh] overflow-hidden border border-foreground/28 bg-background p-0 shadow-none sm:max-w-3xl"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+        }}
+      >
         <DialogHeader className="border-b border-foreground/10 px-8 py-5">
           <DialogDescription className="sr-only">
             View and edit thought details and attachments.
           </DialogDescription>
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <DialogTitle className="text-xl font-normal">Thought</DialogTitle>
+            <div className="min-w-0 flex-1 space-y-2">
+              <DialogTitle className="sr-only">Thought details</DialogTitle>
+              {isEditingTitle ? (
+                <input
+                  ref={titleEditorRef}
+                  type="text"
+                  value={titleDraft}
+                  onChange={(event) => {
+                    setTitleDraft(event.target.value)
+                  }}
+                  aria-label="Thought title"
+                  placeholder="Thought"
+                  onBlur={commitTitleEdit}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      commitTitleEdit()
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      setTitleDraft(thought.title ?? '')
+                      setIsEditingTitle(false)
+                    }
+                  }}
+                  className="block h-8 w-full cursor-text border-0 bg-transparent px-0 pr-2 text-left text-xl font-normal leading-8 tracking-tight text-foreground shadow-none ring-0 outline-none placeholder:text-foreground/45 focus:border-0 focus:ring-0 focus:outline-none focus-visible:border-0 focus-visible:ring-0 focus-visible:outline-none"
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="block h-8 w-full cursor-text pr-2 text-left text-xl font-normal leading-8 tracking-tight text-foreground shadow-none ring-0 outline-none focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none"
+                  onClick={() => {
+                    const initialTitle = thought.title ?? ''
+                    setTitleDraft(initialTitle)
+                    setIsEditingTitle(true)
+                    requestAnimationFrame(() => {
+                      const editor = titleEditorRef.current
+                      if (!editor) return
+                      editor.focus()
+                      const cursorPosition = initialTitle.length
+                      editor.setSelectionRange(cursorPosition, cursorPosition)
+                    })
+                  }}
+                >
+                  {thought.title?.replace(/\s+/g, ' ').trim() || 'Thought'}
+                </button>
+              )}
               <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
                 <span className="text-foreground/65">Created {formatTaskDumpTimestamp(thought.created_at)}</span>
                 <span className="text-foreground/30" aria-hidden="true">•</span>
@@ -2142,22 +2355,6 @@ function ThoughtDialog({
 
         <div className="max-h-[calc(88vh-84px)] overflow-y-auto px-8 py-6">
           <div className="space-y-6">
-            <div className="space-y-2">
-              <Input
-                value={thought.title ?? ''}
-                onChange={(event) => {
-                  const title = event.target.value
-                  onThoughtChange(
-                    thought.id,
-                    (current) => ({ ...current, title: title || null }),
-                    { title: title || null }
-                  )
-                }}
-                placeholder="Title"
-                className="h-10 rounded-none border-0 bg-transparent px-0 text-base font-normal shadow-none dark:bg-transparent placeholder:text-foreground/60 focus-visible:ring-0"
-              />
-            </div>
-
             <div>
               <MarkdownComposer
                 value={thought.content}

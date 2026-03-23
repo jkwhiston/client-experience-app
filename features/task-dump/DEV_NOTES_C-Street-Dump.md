@@ -109,8 +109,19 @@ After editing this feature, run through:
 7. Clear task body completely with empty title, then rewrite text from scratch (no forced modal close/errors while rewriting).
 8. Repeat quick edits in thought modal and workspace block editor.
 9. Confirm task card previews do not show raw markdown markers.
+10. Move tasks between columns with arrows: no flash back to the old column; order at bottom of target column should feel immediate.
+11. Open Thought modal after renaming title: header title looks like plain text (no focus ring) until you click to edit; new thoughts default to title “Thought”.
 
 ## Notes Log (Latest)
+
+- Update Log - 2026-03-23 (Kanban move stability, In Progress pulse, Thought modal title):
+  - **Column moves (`handleTaskStep`)** no longer use the 500ms debounced task save. Moves clear any pending debounce timer, merge `taskPayloadRef` with the new status/`columnOrder`, and call `updateTaskDumpTask` immediately. Optimistic UI sets `column_order` to append-at-end of the target column (max + 1) and sends the same `columnOrder` in the API payload so server and client do not disagree on order.
+  - **`load()` stale guard**: monotonic `loadRequestIdRef`; only the latest `fetchTaskDumpSnapshot` result applies `setSnapshot` / `setError`, so slower GETs cannot overwrite newer state.
+  - **Live reload vs mutations**: `scheduleLiveReload` defers when `taskMutationsInFlightRef > 0` (step + reorder); a flag triggers one reload after mutations finish. Reduces mid-gesture snapshot clobbering from Supabase `postgres_changes` / polling.
+  - **`handleTaskReorder`**: `reorderInFlightRef` per task id blocks overlapping reorder requests; mutations participate in the same in-flight counter as steps.
+  - **API `reorderTasks`**: batch updates use a single `upsert(..., { onConflict: 'id' })` instead of sequential per-row updates to avoid partial-order reads.
+  - **In Progress pulse** (`app/globals.css` + `task-dump-app.tsx`): task cards in `in_progress` get a subtle sky-tinted `box-shadow` animation. Per-card `animationDuration`, negative `animationDelay` (phase), and easing are seeded from `task.id` so pulses feel asynchronous, not marching. `prefers-reduced-motion` uses a static ring. Context menu row uses `outline-none` to avoid extra chrome; pulse does not pause on hover.
+  - **Thought modal**: title is edited in the **header** (same click-to-edit pattern as `TaskDialog`), not a separate body field. `DialogTitle` is `sr-only` (“Thought details”). New thoughts from quick-add get persisted `title: 'Thought'`; empty title on commit normalizes to `'Thought'`. List row heading uses the same default label. **Focus UX**: title button/input suppress focus ring classes; `DialogContent` uses `onOpenAutoFocus={(e) => e.preventDefault()}` so reopening does not auto-focus the title; effects reset `isEditingTitle` when the dialog opens or `thought.id` changes.
 
 - Update Log - 2026-03-17 (Modal Status Cues + Deadline Pulse/Calendar Polish):
   - Task modal now uses a status-colored micro vertical bar in the header title/meta block for at-a-glance status context.

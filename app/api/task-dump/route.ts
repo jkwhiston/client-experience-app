@@ -322,17 +322,24 @@ export async function POST(request: Request) {
       }
 
       case 'reorderTasks': {
-        const updates = Array.isArray(body.updates) ? body.updates : []
-        for (const update of updates) {
-          if (!update?.id) continue
+        const updates: Array<{ id?: unknown; status?: unknown; columnOrder?: unknown }> = Array.isArray(body.updates)
+          ? body.updates
+          : []
+        const normalizedUpdates = updates
+          .filter((update) => update?.id)
+          .map((update) => {
+            const rawOrder = Number(update.columnOrder)
+            return {
+              id: String(update.id),
+              status: normalizeStatus(update.status),
+              column_order: Number.isFinite(rawOrder) ? rawOrder : 0,
+            }
+          })
 
+        if (normalizedUpdates.length > 0) {
           const result = await taskDump
             .from(TASKS_TABLE)
-            .update({
-              status: normalizeStatus(update.status),
-              column_order: Number.isFinite(update.columnOrder) ? Number(update.columnOrder) : 0,
-            })
-            .eq('id', String(update.id))
+            .upsert(normalizedUpdates, { onConflict: 'id' })
           ensureNoError(result.error, 'Could not reorder tasks.')
         }
         break
