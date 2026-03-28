@@ -1,0 +1,14 @@
+---
+description: Local development setup, secrets, and ignored artifacts for this repo
+globs:
+  - "**/*"
+---
+
+# Dev setup
+
+- **Bootstrap**: Prefer [docs/local-setup.md](docs/local-setup.md) — `brew bundle` (optional), `./bin/bootstrap-mac`, then edit `.env.local`.
+- **Install**: Use `npm ci` for reproducible installs from `package-lock.json`; avoid committing `node_modules`.
+- **Secrets**: Put real keys and passwords only in `.env.local` (or environment). Never commit `.env.local` or secrets. `.env.example` is the committed template.
+- **Dev server**: `npm run dev` serves on port **3002** (see `package.json`).
+- **Checks**: `bin/smoke-test` runs lint and production build.
+- **Do not commit**: `node_modules/`, `.next/`, `.vercel/`, `supabase/.temp/`, build artifacts, caches, local DBs. Machine-only data may live under `.local/`, `tmp/`, `var/`, or `data-local/` (gitignored at repo root).

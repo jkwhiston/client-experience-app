@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+if command -v brew >/dev/null 2>&1 && [[ -f Brewfile ]]; then
+  if brew bundle check >/dev/null 2>&1; then
+    echo "Homebrew dependencies satisfied (brew bundle check)."
+  else
+    echo "Installing Homebrew dependencies from Brewfile..."
+    brew bundle
+  fi
+else
+  echo "Skipping brew bundle (brew not found or no Brewfile). Ensure Node.js and npm are installed."
+fi
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  echo "error: node and npm must be on PATH" >&2
+  exit 1
+fi
+
+echo "Installing npm dependencies (npm ci)..."
+npm ci
+
+if [[ -f .env.example ]] && [[ ! -f .env.local ]]; then
+  cp -n .env.example .env.local
+  echo "Created .env.local from .env.example — edit it with your Supabase URL, anon key, and APP_PASSWORD."
+elif [[ ! -f .env.local ]]; then
+  echo "No .env.example found; create .env.local manually (see docs/local-setup.md)."
+fi
+
+echo ""
+echo "Next:"
+echo "  1. Edit .env.local with real values if you have not already."
+echo "  2. Run: npm run dev   (http://localhost:3002)"
+echo "  3. Run: bin/smoke-test"
