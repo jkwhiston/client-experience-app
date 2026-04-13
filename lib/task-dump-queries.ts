@@ -19,12 +19,36 @@ async function requestTaskDump(
     ...init,
     cache: 'no-store',
     headers: {
+      Accept: 'application/json',
       'Content-Type': 'application/json',
       ...(init?.headers ?? {}),
     },
   })
 
-  const json = await response.json()
+  if (response.status === 401) {
+    if (typeof window !== 'undefined') {
+      window.location.assign('/login')
+    }
+    throw new Error('Your session expired. Redirecting to login.')
+  }
+
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('application/json')) {
+    if (typeof window !== 'undefined' && response.redirected && response.url.includes('/login')) {
+      window.location.assign('/login')
+      throw new Error('Your session expired. Redirecting to login.')
+    }
+
+    throw new Error('Task Dump returned a non-JSON response.')
+  }
+
+  let json: { error?: string; snapshot?: TaskDumpSnapshot }
+  try {
+    json = (await response.json()) as { error?: string; snapshot?: TaskDumpSnapshot }
+  } catch {
+    throw new Error('Task Dump returned invalid JSON.')
+  }
+
   if (!response.ok) {
     throw new Error(json?.error || 'Task Dump request failed.')
   }

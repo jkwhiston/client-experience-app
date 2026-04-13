@@ -6,9 +6,11 @@ const AUTH_TOKEN = 'authenticated'
 export function middleware(request: NextRequest) {
   const authCookie = request.cookies.get(AUTH_COOKIE)
   const isAuthenticated = authCookie?.value === AUTH_TOKEN
-  const isLoginPage = request.nextUrl.pathname.startsWith('/login')
-  const isAuthApi = request.nextUrl.pathname.startsWith('/api/auth')
-  const isWebhookApi = request.nextUrl.pathname.startsWith('/api/webhooks/')
+  const { pathname } = request.nextUrl
+  const isLoginPage = pathname.startsWith('/login')
+  const isApiRoute = pathname.startsWith('/api/')
+  const isAuthApi = pathname.startsWith('/api/auth')
+  const isWebhookApi = pathname.startsWith('/api/webhooks/')
 
   // Allow auth and incoming webhook APIs through.
   if (isAuthApi || isWebhookApi) {
@@ -17,6 +19,10 @@ export function middleware(request: NextRequest) {
 
   // Redirect unauthenticated users to login
   if (!isAuthenticated && !isLoginPage) {
+    if (isApiRoute) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
